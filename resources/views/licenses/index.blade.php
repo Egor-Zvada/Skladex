@@ -1,0 +1,15 @@
+@extends('layouts.app')
+@section('title', 'Лицензии')
+@section('content')
+<div class="page-header"><div><h1>Лицензии</h1><p class="muted">Экземпляры лицензий, защищённые ключи и занятые места.</p></div><a class="button button-secondary" href="{{ route('software.index') }}">Программы и сервисы</a></div>
+<form method="get" class="panel actions"><label class="field">Поиск<input name="q" value="{{ $q }}" placeholder="Программа, код или пометка"></label><button class="button button-secondary">Найти</button></form>
+<section class="panel">@if($licenses->isEmpty())<p class="empty-state">Лицензий пока нет. Добавьте программу в каталоге, затем сохраните лицензию.</p>@else<div class="table-wrap"><table class="table"><thead><tr><th>Лицензия</th><th>Программа</th><th>Привязки / места</th><th>Ключ</th><th>Действует до</th></tr></thead><tbody>@foreach($licenses as $license)<tr><td><a href="{{ route('licenses.show', $license) }}"><code>{{ $license->code }}</code></a><div>{{ $license->name }}</div></td><td>{{ $license->product->name }}</td><td>{{ $license->active_assignments_count }}{{ $license->metric === 'device' ? ' / '.($license->capacity ?? '?') : ' · ручная проверка' }}</td><td>{{ $license->secret_exists ? '•••••••• · сохранён' : 'Не указан' }}</td><td>{{ $license->expires_on?->format('d.m.Y') ?? 'Не указан' }}</td></tr>@endforeach</tbody></table></div>{{ $licenses->links() }}@endif</section>
+@if(\App\Support\Access::allows(auth()->user(), 'write'))
+<section class="panel"><h2>Быстро добавить лицензию</h2>@if($products->isEmpty())<p><a href="{{ route('software.index') }}">Сначала добавьте программу</a>.</p>@else
+<form method="post" action="{{ route('licenses.store') }}" class="stack" autocomplete="off">@csrf<input type="hidden" name="idempotency_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
+<div class="form-grid"><label class="field">Программа<select name="software_product_id" required><option value="">Выберите программу</option>@foreach($products as $product)<option value="{{ $product->id }}" @selected((string) old('software_product_id') === (string) $product->id)>{{ $product->name }}</option>@endforeach</select></label>
+<label class="field">Код / ключ лицензии <span class="muted">необязательно</span><input type="password" name="license_key" maxlength="16384" autocomplete="new-password" spellcheck="false"><small>Сохраняется зашифрованным. Внутренний номер SKX-L назначается автоматически.</small></label>
+<label class="field">Привязать к компьютеру<select name="asset_id"><option value="">Можно позднее</option>@foreach($assets as $asset)<option value="{{ $asset->id }}" @selected((string) old('asset_id') === (string) $asset->id)>{{ $asset->code }} · {{ $asset->name }}</option>@endforeach</select></label></div>
+<details><summary>Места, срок и дополнительные сведения</summary>@include('licenses.metadata-fields', ['license'=>null])</details>
+<p class="muted">Один общий ключ может обслуживать несколько мест. Неизвестная ёмкость допустима; условия использования проверяются вручную.</p><div><button class="button button-primary">Сохранить лицензию</button></div></form>@endif</section>@endif
+@endsection

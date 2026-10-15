@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Skladex backup
+[Timer]
+OnCalendar=*-*-* 03:20:00 Asia/Sakhalin
+Persistent=true
+RandomizedDelaySec=300
+Unit=skladex-backup.service
+[Install]
+WantedBy=timers.target

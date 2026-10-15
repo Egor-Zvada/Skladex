@@ -1,0 +1,6 @@
+@extends('layouts.app')
+@section('title','Кабинеты')
+@section('content')
+<div class="page-header"><div><h1>Кабинеты</h1><p class="muted">Помещения для размещения оборудования</p></div></div><div class="panel table-wrap"><table class="table"><thead><tr><th>Кабинет</th><th>Код</th><th>Оборудование</th><th>Гостевой просмотр</th></tr></thead><tbody>@forelse($items as $l)<tr><td><a href="{{ route('locations.show',$l) }}">{{ $l->name }}</a></td><td class="mono">{{ $l->code }}</td><td>{{ $l->assets_count }}</td><td>{{ $l->is_public?'Доступен':'Выключен' }}</td></tr>@empty<tr><td colspan="4"><div class="empty-state">Создайте первый кабинет.</div></td></tr>@endforelse</tbody></table></div>{{ $items->links() }}
+@if(\App\Support\Access::allows(auth()->user(),'write'))<section class="panel stack"><h2>Новый кабинет</h2><form method="post" action="{{ route('locations.store') }}" class="stack">@csrf<input type="hidden" name="idempotency_key" value="{{ Str::uuid() }}"><div class="form-grid"><label class="field">Название<input name="name" required maxlength="255" placeholder="Кабинет 214"></label><label class="field">Внутренняя заметка<input name="notes" maxlength="5000"></label></div><input type="hidden" name="is_public" value="1"><button class="button button-primary">Создать кабинет</button></form></section>@endif
+@endsection

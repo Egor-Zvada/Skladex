@@ -1,0 +1,8 @@
+[Unit]
+Description=Run Skladex scheduler every minute
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+RandomizedDelaySec=2
+[Install]
+WantedBy=timers.target

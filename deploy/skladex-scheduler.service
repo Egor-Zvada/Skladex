@@ -1,0 +1,15 @@
+[Unit]
+Description=Skladex scheduled tasks
+After=mariadb.service redis-server.service
+[Service]
+Type=oneshot
+User=skladex
+Group=skladex
+WorkingDirectory=/srv/skladex/app
+ExecStart=/usr/bin/php artisan schedule:run
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/skladex/app/storage /srv/skladex/app/bootstrap/cache
+UMask=0027

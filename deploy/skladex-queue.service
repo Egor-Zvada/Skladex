@@ -1,0 +1,18 @@
+[Unit]
+Description=Skladex queue worker
+After=network.target mariadb.service redis-server.service
+[Service]
+User=skladex
+Group=skladex
+WorkingDirectory=/srv/skladex/app
+ExecStart=/usr/bin/php artisan queue:work redis --sleep=3 --tries=3 --timeout=120 --max-time=3600 --memory=256
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/skladex/app/storage /srv/skladex/app/bootstrap/cache
+UMask=0027
+[Install]
+WantedBy=multi-user.target
