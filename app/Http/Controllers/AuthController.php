@@ -18,9 +18,11 @@ class AuthController extends Controller
 
     public function authenticate(Request $r)
     {
-        $data = $r->validate(['email' => 'required|email|max:255', 'password' => 'required|string|max:1024']);
-        if (! Auth::attempt(['email' => mb_strtolower($data['email']), 'password' => $data['password'], 'is_active' => true])) {
-            throw ValidationException::withMessages(['email' => 'Не удалось войти. Проверьте почту и пароль.']);
+        $data = $r->validate(['email' => 'required|string|max:255', 'password' => 'required|string|max:1024']);
+        $identifier = mb_strtolower(trim($data['email']));
+        $field = str_contains($identifier, '@') ? 'email' : 'username';
+        if (! Auth::attempt([$field => $identifier, 'password' => $data['password'], 'is_active' => true])) {
+            throw ValidationException::withMessages(['email' => 'Не удалось войти. Проверьте логин или почту и пароль.']);
         }
         $r->session()->regenerate();
         Audit::record('auth.login', $r->user());
@@ -61,6 +63,6 @@ class AuthController extends Controller
         $r->session()->regenerate();
         Audit::record('setup.completed', $user);
 
-        return redirect()->route('dashboard')->with('success','Администратор создан. Система готова к заполнению.');
+        return redirect()->route('dashboard')->with('success', 'Администратор создан. Система готова к заполнению.');
     }
 }

@@ -56,6 +56,6 @@ class KitController extends Controller
             Audit::record('kit.members.changed', $k, ['asset_id' => $d['asset_id'], 'remove' => $d['remove'] ?? false]);
         });
 
-        return $r->is('api/*') ? response()->json(['ok' => true]) : back()->with('success','Состав комплекта сохранён.');
+        return $r->is('api/*') ? response()->json(['ok' => true]) : back()->with('success', 'Состав комплекта сохранён.');
     }
 }

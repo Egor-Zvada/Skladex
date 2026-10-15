@@ -251,7 +251,7 @@ class OperationsController extends Controller
     {
         $data = $request->all();
         if (! empty($data['checklist_text']) && ! isset($data['checklist_schema'])) {
-            $lines = preg_split('/\R/u',(string) $data['checklist_text']);
+            $lines = preg_split('/\R/u', (string) $data['checklist_text']);
             $data['checklist_schema'] = [];
             foreach ($lines as $index => $line) {
                 if (trim($line) !== '') {

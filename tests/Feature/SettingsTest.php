@@ -33,7 +33,7 @@ class SettingsTest extends TestCase
 
     private function userInput(User $user, array $extra = []): array
     {
-        return array_merge(['expected_state' => SettingsController::userRevision($user->fresh()), 'name' => $user->name, 'email' => $user->email, 'role' => $user->role, 'is_active' => $user->is_active], $extra);
+        return array_merge(['expected_state' => SettingsController::userRevision($user->fresh()), 'name' => $user->name, 'username' => $user->username, 'email' => $user->email, 'role' => $user->role, 'is_active' => $user->is_active], $extra);
     }
 
     private function fixtures(): array
@@ -67,10 +67,94 @@ class SettingsTest extends TestCase
     {
         $this->actingAs($this->admin)->post(route('settings.users.store'), ['name' => 'Новый сотрудник', 'email' => 'NEW@example.test', 'password' => 'LongNewPassword-123', 'password_confirmation' => 'LongNewPassword-123', 'role' => 'viewer', 'is_active' => 1])->assertRedirect(route('settings.index'));
         $user = User::where('email', 'new@example.test')->firstOrFail();
+        $this->assertNull($user->username);
         $this->assertTrue(Hash::check('LongNewPassword-123', $user->password));
         $audit = AuditEvent::where('event', 'settings.user.created')->firstOrFail();
         $this->assertStringNotContainsString('LongNewPassword-123', json_encode($audit->data));
         $this->assertStringNotContainsString($user->password, json_encode($audit->data));
+    }
+
+    public function test_optional_username_is_saved_shown_and_can_be_cleared(): void
+    {
+        $this->actingAs($this->admin)->post(route('settings.users.store'), ['name' => 'Новый сотрудник', 'username' => 'new.user-1', 'email' => 'named@example.test', 'password' => 'LongNewPassword-123', 'password_confirmation' => 'LongNewPassword-123', 'role' => 'viewer', 'is_active' => 1])->assertRedirect(route('settings.index'));
+        $user = User::where('email', 'named@example.test')->firstOrFail();
+        $this->assertSame('new.user-1', $user->username);
+        $this->get(route('settings.index'))->assertOk()->assertSee('new.user-1');
+        $this->actingAs($user)->get(route('settings.index'))->assertOk()->assertSee('new.user-1')->assertDontSee('Создать пользователя');
+        $this->actingAs($this->admin)->post(route('settings.users.update', $user->id), $this->userInput($user, ['username' => '']))->assertRedirect(route('settings.index'));
+        $this->assertNull($user->fresh()->username);
+    }
+
+    public function test_invalid_or_duplicate_usernames_do_not_create_or_rename_users(): void
+    {
+        $occupied = User::factory()->create(['username' => 'reserved.user']);
+        $input = ['name' => 'Новый сотрудник', 'email' => 'invalid@example.test', 'password' => 'LongNewPassword-123', 'password_confirmation' => 'LongNewPassword-123', 'role' => 'viewer', 'is_active' => 1];
+        $this->actingAs($this->admin);
+        foreach (['ab', 'Admin', 'имя', 'with space', 'name@example.test', str_repeat('a', 65), $occupied->username] as $username) {
+            $this->postJson(route('settings.users.store'), array_merge($input, ['username' => $username]))->assertUnprocessable()->assertJsonValidationErrors('username');
+        }
+        $this->postJson(route('settings.users.update', $this->operator->id), $this->userInput($this->operator, ['username' => $occupied->username]))->assertUnprocessable()->assertJsonValidationErrors('username');
+        $this->assertNull($this->operator->fresh()->username);
+        $this->assertSame(3, User::count());
+    }
+
+    public function test_unchanged_username_is_allowed_and_omission_preserves_existing_login(): void
+    {
+        $this->operator->update(['username' => 'operator.one']);
+        $this->operator->createToken('Existing reader', ['read'], now()->addDay());
+        $this->actingAs($this->admin)->post(route('settings.users.update', $this->operator->id), $this->userInput($this->operator))->assertRedirect(route('settings.index'));
+        $this->operator = $this->operator->fresh();
+        $input = $this->userInput($this->operator, ['name' => 'Уточнённое имя']);
+        unset($input['username']);
+        $this->post(route('settings.users.update', $this->operator->id), $input)->assertRedirect(route('settings.index'));
+        $this->assertSame('operator.one', $this->operator->fresh()->username);
+        $this->assertSame(1, $this->operator->tokens()->count());
+    }
+
+    public function test_username_and_email_changes_revoke_user_sessions_and_tokens(): void
+    {
+        config(['session.driver' => 'database']);
+        $this->operator->update(['username' => 'operator.one']);
+        DB::table('sessions')->insert(['id' => 'unrelated-admin-session', 'user_id' => $this->admin->id, 'payload' => base64_encode('{}'), 'last_activity' => time()]);
+        $this->actingAs($this->admin);
+        foreach (['username' => 'operator.renamed', 'email' => 'renamed@example.test'] as $field => $value) {
+            $this->operator = $this->operator->fresh();
+            $remember = $this->operator->remember_token;
+            $this->operator->createToken('Previous '.$field, ['read'], now()->addDay());
+            $sessionId = 'operator-before-'.$field;
+            DB::table('sessions')->insert(['id' => $sessionId, 'user_id' => $this->operator->id, 'payload' => base64_encode('{}'), 'last_activity' => time()]);
+            $this->post(route('settings.users.update', $this->operator->id), $this->userInput($this->operator, [$field => $value]))->assertRedirect(route('settings.index'));
+            $this->assertSame($value, $this->operator->fresh()->getAttribute($field));
+            $this->assertSame(0, $this->operator->tokens()->count());
+            $this->assertNotSame($remember, $this->operator->fresh()->remember_token);
+            $this->assertDatabaseMissing('sessions', ['id' => $sessionId]);
+            $this->assertDatabaseHas('sessions', ['id' => 'unrelated-admin-session']);
+        }
+    }
+
+    public function test_username_change_invalidates_old_form_even_without_timestamp_change(): void
+    {
+        $input = $this->userInput($this->operator);
+        $this->operator->createToken('Must remain after rejected stale command', ['read'], now()->addDay());
+        DB::table('users')->where('id', $this->operator->id)->update(['username' => 'changed.elsewhere']);
+        $this->actingAs($this->admin)->post(route('settings.users.update', $this->operator->id), $input)->assertStatus(409);
+        $this->assertSame('changed.elsewhere', $this->operator->fresh()->username);
+        $this->assertSame(1, $this->operator->tokens()->count());
+    }
+
+    public function test_changing_own_username_also_ends_the_current_admin_session(): void
+    {
+        $this->admin->createToken('Previous', ['read'], now()->addDay());
+        $this->actingAs($this->admin)->post(route('settings.users.update', $this->admin->id), $this->userInput($this->admin, ['username' => 'admin.renamed']))->assertRedirect(route('login'));
+        $this->assertGuest();
+        $this->assertSame('admin.renamed', $this->admin->fresh()->username);
+        $this->assertSame(0, $this->admin->tokens()->count());
+    }
+
+    public function test_normal_user_creation_still_rejects_an_eight_character_password(): void
+    {
+        $this->actingAs($this->admin)->postJson(route('settings.users.store'), ['name' => 'Новый сотрудник', 'username' => 'regular.user', 'email' => 'short@example.test', 'password' => 'Eight123', 'password_confirmation' => 'Eight123', 'role' => 'viewer', 'is_active' => 1])->assertUnprocessable()->assertJsonValidationErrors('password');
+        $this->assertDatabaseMissing('users', ['email' => 'short@example.test']);
     }
 
     public function test_admin_cannot_disable_or_demote_self_even_if_another_admin_exists(): void
@@ -202,7 +286,7 @@ class SettingsTest extends TestCase
     {
         [$a] = $this->fixtures();
         $this->actingAs($this->admin)->post(route('settings.aliases.store'), ['kind' => 'asset-code', 'alias' => 'EQ-'.chr(0).'123', 'target_type' => 'asset', 'target_uuid' => $a->uuid])->assertSessionHasErrors('alias');
-        $this->post(route('settings.aliases.store'),['kind' => 'asset-code', 'alias' => str_repeat('x',201), 'target_type' => 'asset', 'target_uuid' => $a->uuid])->assertSessionHasErrors('alias');
-        $this->assertSame(0,QrAlias::count());
+        $this->post(route('settings.aliases.store'), ['kind' => 'asset-code', 'alias' => str_repeat('x', 201), 'target_type' => 'asset', 'target_uuid' => $a->uuid])->assertSessionHasErrors('alias');
+        $this->assertSame(0, QrAlias::count());
     }
 }

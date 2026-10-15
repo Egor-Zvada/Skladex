@@ -173,10 +173,10 @@ class OperationsApiController extends Controller
         return $this->operations->cancelCampaign($r->user(), $campaign, $r->all());
     }
 
-    public function campaignReport(Request $r,InventoryCampaign $campaign)
+    public function campaignReport(Request $r, InventoryCampaign $campaign)
     {
-        Access::check($r->user(),'read');
-        abort_unless($campaign->status === 'closed',409,'Кампания ещё не закрыта.');
+        Access::check($r->user(), 'read');
+        abort_unless($campaign->status === 'closed', 409, 'Кампания ещё не закрыта.');
 
         return $campaign->reports()->latest('revision')->firstOrFail()->payload;
     }

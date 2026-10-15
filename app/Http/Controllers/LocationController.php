@@ -54,6 +54,6 @@ class LocationController extends Controller
             Audit::record('location.updated', $x);
         });
 
-        return $r->is('api/*') ? response()->json(['data' => $location->refresh()]) : back()->with('success','Кабинет сохранён.');
+        return $r->is('api/*') ? response()->json(['data' => $location->refresh()]) : back()->with('success', 'Кабинет сохранён.');
     }
 }

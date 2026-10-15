@@ -35,5 +35,5 @@ Route::prefix('inventory')->name('api.inventory.')->group(function () {
     Route::post('/{campaign}/resolutions', [C::class, 'resolutionStore'])->name('resolutions.store');
     Route::post('/{campaign}/close', [C::class, 'campaignClose'])->name('close');
     Route::post('/{campaign}/cancel', [C::class, 'campaignCancel'])->name('cancel');
-    Route::get('/{campaign}/report',[C::class, 'campaignReport'])->name('report');
+    Route::get('/{campaign}/report', [C::class, 'campaignReport'])->name('report');
 });

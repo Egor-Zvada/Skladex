@@ -144,4 +144,24 @@ class AuthBootstrapTest extends TestCase
             'setup_token' => self::SETUP_TOKEN,
         ];
     }
+
+    public function test_username_login_accepts_an_existing_user_password_without_registration_rules(): void
+    {
+        $admin = User::factory()->create(['username' => 'admin', 'email' => 'admin@example.invalid', 'password' => 'Test123!', 'role' => 'admin', 'is_active' => true]);
+        $this->post(route('login.store'), ['email' => 'ADMIN', 'password' => 'Test123!'])->assertRedirect(route('dashboard'));
+        $this->assertAuthenticatedAs($admin);
+        $this->post(route('logout'));
+        $this->post(route('login.store'), ['email' => 'ADMIN@EXAMPLE.INVALID', 'password' => 'Test123!'])->assertRedirect(route('dashboard'));
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    public function test_username_does_not_bypass_password_or_active_flag(): void
+    {
+        User::factory()->create(['username' => 'admin', 'password' => 'Test123!', 'role' => 'admin', 'is_active' => false]);
+        $this->postJson(route('login.store'), ['email' => 'admin', 'password' => 'Test123!'])->assertUnprocessable();
+        $this->assertGuest();
+        User::where('username', 'admin')->update(['is_active' => true]);
+        $this->postJson(route('login.store'), ['email' => 'admin', 'password' => 'Wrong123!'])->assertUnprocessable();
+        $this->assertGuest();
+    }
 }

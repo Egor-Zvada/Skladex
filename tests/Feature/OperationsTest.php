@@ -327,16 +327,16 @@ class OperationsTest extends TestCase
         $this->assertHttpStatus(409, fn () => $this->observation($campaign, 'late'));
         $this->assertSame($payload, $report->fresh()->payload);
         $this->assertSame('Тестовый предмет', $report->fresh()->payload['items'][0]['name']);
-        $this->assertSame('in_use',$this->asset->fresh()->status);
+        $this->assertSame('in_use', $this->asset->fresh()->status);
     }
 
     public function test_not_found_needs_explicit_resolution_and_never_writes_off_asset(): void
     {
         $campaign = $this->activeCampaign();
-        $campaign = $this->operations->beginReconciliation($this->operator,$campaign,$campaign->version);
-        $this->assertHttpStatus(422,fn () => $this->operations->closeCampaign($this->operator,$campaign,$campaign->version));
-        $this->operations->resolve($this->operator,$campaign,['expected_version' => $campaign->version, 'asset_uuid' => $this->asset->uuid, 'asset_expected_version' => 1, 'decision' => 'not_found', 'reason' => 'Не предъявлен после повторного поиска']);
-        $this->operations->closeCampaign($this->operator,$campaign->fresh(),$campaign->fresh()->version);
-        $this->assertSame('in_use',$this->asset->fresh()->status);
+        $campaign = $this->operations->beginReconciliation($this->operator, $campaign, $campaign->version);
+        $this->assertHttpStatus(422, fn () => $this->operations->closeCampaign($this->operator, $campaign, $campaign->version));
+        $this->operations->resolve($this->operator, $campaign, ['expected_version' => $campaign->version, 'asset_uuid' => $this->asset->uuid, 'asset_expected_version' => 1, 'decision' => 'not_found', 'reason' => 'Не предъявлен после повторного поиска']);
+        $this->operations->closeCampaign($this->operator, $campaign->fresh(), $campaign->fresh()->version);
+        $this->assertSame('in_use', $this->asset->fresh()->status);
     }
 }

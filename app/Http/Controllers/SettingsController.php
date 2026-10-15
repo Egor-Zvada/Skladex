@@ -47,13 +47,15 @@ class SettingsController extends Controller
         }
         $data = $request->validate([
             'name' => ['required', 'string', 'max:100', 'not_regex:/[\p{Cc}\p{Cf}]/u'],
+            'username' => ['nullable', 'string', 'min:3', 'max:64', 'regex:/\A[a-z0-9._-]{3,64}\z/', Rule::unique('users', 'username')],
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:12|max:128|confirmed',
             'role' => ['required', Rule::in(['admin', 'operator', 'viewer'])], 'is_active' => 'required|boolean',
         ]);
         DB::transaction(function () use ($request, $data) {
             $this->lockedActor($request->user(), 'manage-users');
-            $user = User::create(['name' => $data['name'], 'email' => $data['email'], 'password' => $data['password'], 'role' => $data['role'], 'is_active' => (bool) $data['is_active']]);
+            $this->assertUsernameAvailable($data['username'] ?? null);
+            $user = User::create(['name' => $data['name'], 'username' => $data['username'] ?? null, 'email' => $data['email'], 'password' => $data['password'], 'role' => $data['role'], 'is_active' => (bool) $data['is_active']]);
             Audit::record('settings.user.created', $user, ['role' => $user->role, 'is_active' => $user->is_active]);
         }, 3);
 
@@ -69,10 +71,11 @@ class SettingsController extends Controller
         $data = $request->validate([
             'expected_state' => 'required|string|size:64',
             'name' => ['required', 'string', 'max:100', 'not_regex:/[\p{Cc}\p{Cf}]/u'],
+            'username' => ['nullable', 'string', 'min:3', 'max:64', 'regex:/\A[a-z0-9._-]{3,64}\z/', Rule::unique('users', 'username')->ignore($user->id)],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', Rule::in(['admin', 'operator', 'viewer'])], 'is_active' => 'required|boolean',
         ]);
-        DB::transaction(function () use ($request, $user, $data) {
+        $logoutCurrent = DB::transaction(function () use ($request, $user, $data) {
             $actor = $this->lockedActor($request->user(), 'manage-users');
             $target = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
             abort_unless(hash_equals(self::userRevision($target), $data['expected_state']), 409, 'Пользователь изменился. Обновите страницу и проверьте актуальные права.');
@@ -84,18 +87,34 @@ class SettingsController extends Controller
             }
             $before = ['role' => $target->role, 'is_active' => $target->is_active];
             $rightsChanged = $target->role !== $data['role'] || $target->is_active !== $active;
-            $target->fill(['name' => $data['name'], 'email' => $data['email'], 'role' => $data['role'], 'is_active' => $active]);
-            if ($rightsChanged) {
+            // Older clients may omit username; an explicit empty field clears it.
+            $username = array_key_exists('username', $data) ? $data['username'] : $target->username;
+            $this->assertUsernameAvailable($username, $target->id);
+            $identityChanged = $target->username !== $username || $target->email !== $data['email'];
+            $revoke = $rightsChanged || $identityChanged;
+            $target->fill(['name' => $data['name'], 'username' => $username, 'email' => $data['email'], 'role' => $data['role'], 'is_active' => $active]);
+            if ($revoke) {
                 $target->remember_token = Str::random(60);
             }
             $target->save();
-            if ($rightsChanged) {
+            if ($revoke) {
                 $this->revokeCredentials($target);
             }
-            Audit::record('settings.user.updated', $target, ['before' => $before, 'after' => ['role' => $target->role, 'is_active' => $target->is_active], 'credentials_revoked' => $rightsChanged]);
+            Audit::record('settings.user.updated', $target, ['before' => $before, 'after' => ['role' => $target->role, 'is_active' => $target->is_active], 'identity_changed' => $identityChanged, 'credentials_revoked' => $revoke]);
+
+            return $revoke && $target->id === $actor->id;
         }, 3);
 
-        return redirect()->route('settings.index')->with('success', 'Пользователь обновлён. При изменении прав прежние сеансы и API-токены отозваны.');
+        if ($logoutCurrent) {
+            // Otherwise StartSession could recreate the current DB session after revocation.
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect()->route('login')->with('success', 'Данные входа изменены. Войдите снова с новым логином или почтой.');
+        }
+
+        return redirect()->route('settings.index')->with('success', 'Пользователь обновлён. При изменении логина, почты или прав прежние сеансы и API-токены отозваны.');
     }
 
     public function password(Request $request)
@@ -205,7 +224,22 @@ class SettingsController extends Controller
     /** Optimistic revision without a users.version column or exposure of the password hash. */
     public static function userRevision(User $user): string
     {
-        return hash_hmac('sha256', json_encode([$user->id, $user->name, $user->email, $user->role, (bool) $user->is_active, $user->getRawOriginal('password'), $user->getRawOriginal('updated_at')], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), (string) config('app.key'));
+        return hash_hmac('sha256', json_encode([$user->id, $user->name, $user->username, $user->email, $user->role, (bool) $user->is_active, $user->getRawOriginal('password'), $user->getRawOriginal('updated_at')], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), (string) config('app.key'));
+    }
+
+    private function assertUsernameAvailable(?string $username, ?int $except = null): void
+    {
+        if ($username === null) {
+            return;
+        }
+        $query = User::where('username', $username);
+        if ($except !== null) {
+            $query->where('id', '!=', $except);
+        }
+        // Recheck after the shared settings mutex, not only before waiting for it.
+        if ($query->lockForUpdate()->first(['id'])) {
+            throw ValidationException::withMessages(['username' => 'Этот логин уже занят.']);
+        }
     }
 
     private function lockedActor(User $actor, string $ability): User
@@ -222,9 +256,9 @@ class SettingsController extends Controller
     {
         $user->tokens()->delete();
         if (config('session.driver') === 'database') {
-            $sessions = DB::table(config('session.table','sessions'))->where('user_id',$user->id);
+            $sessions = DB::table(config('session.table', 'sessions'))->where('user_id', $user->id);
             if ($exceptSession) {
-                $sessions->where('id','!=',$exceptSession);
+                $sessions->where('id', '!=', $exceptSession);
             }
             $sessions->delete();
         }

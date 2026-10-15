@@ -214,13 +214,13 @@ class AssetService
     {
         abort_if($child->location_id !== $parent->location_id && PhysicalPlacement::where('parent_asset_id', $child->id)->lockForUpdate()->get()->isNotEmpty(), 422, 'Сначала переместите предмет вместе с его содержимым в кабинет родителя.');
         abort_if($child->id === $parent->id || $child->archived_at || $parent->archived_at, 422, 'Недопустимое размещение.');
-        abort_if(PhysicalPlacement::where('asset_id',$child->id)->lockForUpdate()->get()->isNotEmpty(),409,'Предмет уже установлен. Сначала снимите его.');
+        abort_if(PhysicalPlacement::where('asset_id', $child->id)->lockForUpdate()->get()->isNotEmpty(), 409, 'Предмет уже установлен. Сначала снимите его.');
         $ancestor = $parent->id;
         $visited = [];
         while ($ancestor) {
-            abort_if($ancestor === $child->id || in_array($ancestor,$visited),422,'Размещение создаёт цикл.');
+            abort_if($ancestor === $child->id || in_array($ancestor, $visited), 422, 'Размещение создаёт цикл.');
             $visited[] = $ancestor;
-            $ancestor = PhysicalPlacement::where('asset_id',$ancestor)->lockForUpdate()->first()?->parent_asset_id;
+            $ancestor = PhysicalPlacement::where('asset_id', $ancestor)->lockForUpdate()->first()?->parent_asset_id;
         }
     }
 }

@@ -167,8 +167,8 @@ class CoreWorkflowTest extends TestCase
             foreach (['dashboard', 'assets.index', 'locations.index', 'kits.index', 'inventory.index', 'maintenance.index', 'software.index', 'licenses.index', 'labels.index', 'settings.index', 'api.reference'] as $route) {
                 $this->get(route($route))->assertOk();
             }
-            $this->get(route('assets.show',$asset))->assertOk();
-            $this->get(route('locations.show',$this->room))->assertOk();
+            $this->get(route('assets.show', $asset))->assertOk();
+            $this->get(route('locations.show', $this->room))->assertOk();
         }
     }
 }

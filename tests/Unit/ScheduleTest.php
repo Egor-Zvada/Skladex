@@ -31,6 +31,6 @@ class ScheduleTest extends TestCase
     public function test_year_interval_does_not_turn_february_29_into_march(): void
     {
         $this->assertSame('2025-02-28', MaintenanceSchedule::at('2024-02-29', 'year', 1)->toDateString());
-        $this->assertSame('2028-02-29',MaintenanceSchedule::at('2024-02-29','year',1,4)->toDateString());
+        $this->assertSame('2028-02-29', MaintenanceSchedule::at('2024-02-29', 'year', 1, 4)->toDateString());
     }
 }

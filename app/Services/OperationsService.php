@@ -809,21 +809,21 @@ final class OperationsService
         }
     }
 
-    private function remind(MaintenancePlan $plan,MaintenanceOccurrence $occurrence): void
+    private function remind(MaintenancePlan $plan, MaintenanceOccurrence $occurrence): void
     {
         $today = CarbonImmutable::now(MaintenanceSchedule::TIMEZONE)->startOfDay();
         $stage = MaintenanceSchedule::date($occurrence->due_on->toDateString())->lessThan($today) ? 'overdue' : 'upcoming';
-        $this->notify($plan->assignee_id ?? $plan->created_by,'occurrence:'.$occurrence->uuid.':'.$stage,($stage === 'overdue' ? 'Просрочено ТО: ' : 'Приближается ТО: ').$plan->name,'maintenance.plans.show',$plan->uuid);
+        $this->notify($plan->assignee_id ?? $plan->created_by, 'occurrence:'.$occurrence->uuid.':'.$stage, ($stage === 'overdue' ? 'Просрочено ТО: ' : 'Приближается ТО: ').$plan->name, 'maintenance.plans.show', $plan->uuid);
     }
 
     private function descendantLocationIds(array $uuids): array
     {
         $all = Location::whereNull('archived_at')->get(['id', 'uuid', 'parent_id']);
-        $ids = $all->whereIn('uuid',$uuids)->pluck('id')->all();
+        $ids = $all->whereIn('uuid', $uuids)->pluck('id')->all();
         do {
             $before = count($ids);
             foreach ($all as $location) {
-                if (in_array($location->parent_id,$ids,true) && ! in_array($location->id,$ids,true)) {
+                if (in_array($location->parent_id, $ids, true) && ! in_array($location->id, $ids, true)) {
                     $ids[] = $location->id;
                 }
             }
