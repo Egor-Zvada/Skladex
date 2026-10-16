@@ -1,0 +1,4 @@
+@php($legacyHistory = \App\Http\Controllers\HistoryController::legacyFor($asset))
+<section class="panel stack" id="legacy-history"><div class="section-heading"><h2>История прежней системы</h2><a href="{{ route('history.index', ['asset'=>$asset->uuid, 'source'=>'legacy']) }}">Весь журнал предмета</a></div>
+@forelse($legacyHistory as $legacyEntry)<div class="history-row"><span class="muted">{{ $legacyEntry['created_at']?->timezone(config('skladex.timezone'))->format('d.m.Y H:i:s') ?? 'Дата неизвестна' }}</span><p>{{ $legacyEntry['title'] }}@if($legacyEntry['legacy_audit_id'] !== null) · исходное событие #{{ $legacyEntry['legacy_audit_id'] }}@endif</p></div>@empty<p class="muted">Для этого предмета перенесённых событий пока нет.</p>@endforelse
+<p class="muted">До 10 последних событий. Авторы в исходном журнале не сохранялись; импорт не создаёт выдуманную историю.</p></section>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Asset;
 use App\Models\AssetComponent;
+use App\Models\Building;
 use App\Models\Category;
 use App\Models\LicenseInstance;
 use App\Models\Location;
@@ -19,17 +20,22 @@ class AssetController extends Controller
 {
     public function index(Request $r)
     {
-        $q = Asset::with('category', 'location')->whereNull('archived_at')->when($r->filled('q'), fn ($q) => $q->where(function ($q) use ($r) {
+        $buildings = Building::whereNull('archived_at')->orderBy('name')->get();
+        $filters = $r->validate(['building_id' => ['nullable', Rule::in(array_merge(['unassigned'], $buildings->pluck('id')->all()))]]);
+        $buildingFilter = $filters['building_id'] ?? null;
+        $q = Asset::with('category', 'location.building')->whereNull('archived_at')->when($r->filled('q'), fn ($q) => $q->where(function ($q) use ($r) {
             $v = '%'.mb_substr($r->string('q'), 0, 150).'%';
             $q->where('name', 'like', $v)->orWhere('code', 'like', $v)->orWhere('inventory_no', 'like', $v)->orWhere('serial_no', 'like', $v);
         }))
-            ->when($r->filled('category'), fn ($q) => $q->where('category_id', $r->integer('category')))->when($r->filled('location'), fn ($q) => $q->where('location_id', $r->integer('location')))->orderBy('name');
+            ->when($r->filled('category'), fn ($q) => $q->where('category_id', $r->integer('category')))->when($r->filled('location'), fn ($q) => $q->where('location_id', $r->integer('location')))
+            ->when($buildingFilter === 'unassigned', fn ($q) => $q->whereDoesntHave('location', fn ($room) => $room->whereNotNull('building_id')))
+            ->when($buildingFilter !== null && $buildingFilter !== 'unassigned', fn ($q) => $q->whereHas('location', fn ($room) => $room->where('building_id', $buildingFilter)))->orderBy('name');
         $assets = $q->paginate(30)->withQueryString();
         if ($r->is('api/*')) {
             return response()->json(['data' => $assets->getCollection()->map(fn ($a) => $this->data($a)), 'meta' => ['page' => $assets->currentPage(), 'last_page' => $assets->lastPage(), 'total' => $assets->total()]]);
         }
 
-        return view('assets.index', ['assets' => $assets, 'categories' => Category::orderBy('name')->get(), 'locations' => Location::whereNull('archived_at')->orderBy('name')->get()]);
+        return view('assets.index', ['assets' => $assets, 'buildings' => $buildings, 'categories' => Category::orderBy('name')->get(), 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get()]);
     }
 
     public function create(Request $r)
@@ -49,7 +55,7 @@ class AssetController extends Controller
 
     private function form(Asset $asset)
     {
-        return view('assets.form', ['asset' => $asset, 'categories' => Category::orderBy('name')->get(), 'locations' => Location::whereNull('archived_at')->orderBy('name')->get()]);
+        return view('assets.form', ['asset' => $asset, 'categories' => Category::orderBy('name')->get(), 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get()]);
     }
 
     public function store(Request $r, AssetService $service)
@@ -70,12 +76,12 @@ class AssetController extends Controller
     public function show(Request $r, Asset $asset)
     {
         abort_if($asset->archived_at, 404);
-        $asset->load('category', 'location', 'components.childAsset', 'physicalPlacement.parentAsset', 'containedPlacements.asset', 'activeLicenseAssignments.licenseInstance.product', 'softwareInstallations.product');
+        $asset->load('category', 'location.building', 'components.childAsset', 'physicalPlacement.parentAsset', 'containedPlacements.asset', 'activeLicenseAssignments.licenseInstance.product', 'softwareInstallations.product');
         if ($r->is('api/*')) {
             return response()->json(['data' => $this->detail($asset)]);
         }
 
-        return view('assets.show', ['asset' => $asset, 'locations' => Location::whereNull('archived_at')->orderBy('name')->get(), 'available' => Asset::whereNull('archived_at')->where('id', '!=', $asset->id)->orderBy('name')->get(), 'racks' => Asset::whereHas('category', fn ($q) => $q->where('kind', 'rack'))->whereNull('archived_at')->get(), 'licenses' => LicenseInstance::with('product')->whereNull('archived_at')->get(), 'products' => SoftwareProduct::whereNull('archived_at')->orderBy('name')->get(), 'contents' => $this->contents($asset)]);
+        return view('assets.show', ['asset' => $asset, 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get(), 'available' => Asset::whereNull('archived_at')->where('id', '!=', $asset->id)->orderBy('name')->get(), 'racks' => Asset::whereHas('category', fn ($q) => $q->where('kind', 'rack'))->whereNull('archived_at')->get(), 'licenses' => LicenseInstance::with('product')->whereNull('archived_at')->get(), 'products' => SoftwareProduct::whereNull('archived_at')->orderBy('name')->get(), 'contents' => $this->contents($asset)]);
     }
 
     public function move(Request $r, Asset $asset, AssetService $service)
@@ -162,6 +168,8 @@ class AssetController extends Controller
 
     private function data(Asset $a): array
     {
-        return ['id' => $a->id, 'uuid' => $a->uuid, 'code' => $a->code, 'name' => $a->name, 'category_id' => $a->category_id, 'location_id' => $a->location_id, 'location_uuid' => $a->location?->uuid, 'inventory_no' => $a->inventory_no, 'serial_no' => $a->serial_no, 'manufacturer' => $a->manufacturer, 'model' => $a->model, 'status' => $a->status, 'condition' => $a->condition, 'maintenance_policy' => $a->maintenance_policy, 'version' => $a->version];
+        $building = $a->location?->building;
+
+        return ['id' => $a->id, 'uuid' => $a->uuid, 'code' => $a->code, 'name' => $a->name, 'category_id' => $a->category_id, 'location_id' => $a->location_id, 'location_uuid' => $a->location?->uuid, 'building' => $building ? ['id' => $building->id, 'uuid' => $building->uuid, 'name' => $building->name] : null, 'inventory_no' => $a->inventory_no, 'serial_no' => $a->serial_no, 'manufacturer' => $a->manufacturer, 'model' => $a->model, 'status' => $a->status, 'condition' => $a->condition, 'maintenance_policy' => $a->maintenance_policy, 'version' => $a->version];
     }
 }

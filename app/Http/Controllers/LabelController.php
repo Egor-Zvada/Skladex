@@ -8,6 +8,7 @@ use App\Models\Location;
 use App\Services\LabelService;
 use App\Support\Access;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class LabelController extends Controller
 {
@@ -46,6 +47,32 @@ class LabelController extends Controller
 
     public function preview(Request $request, LabelService $service)
     {
+        if (! $request->is('api/*') && $request->expectsJson() && $request->boolean('editor')) {
+            Access::check($request->user(), 'read');
+            $data = $request->validate([
+                'editor' => 'required|boolean', 'target_type' => 'required|in:asset,location',
+                'target_ids' => 'sometimes|array|max:500', 'target_ids.*' => 'required|string|uuid|distinct:ignore_case',
+                'start_cell' => 'required|integer|min:1|max:500',
+                'qr_indices' => 'sometimes|array|max:24', 'qr_indices.*' => 'required|integer|min:0|max:499|distinct',
+            ]);
+            $geometry = $this->geometry($request, $service);
+            $ids = $data['target_ids'] ?? [];
+            $targets = $ids === [] ? [] : $service->targets($request->user(), $data['target_type'], $ids);
+            $layout = $service->editorLayout($geometry, count($targets), (int) $data['start_cell']);
+            $images = [];
+            foreach ($data['qr_indices'] ?? [] as $index) {
+                if ($index >= count($targets)) {
+                    throw ValidationException::withMessages(['qr_indices' => 'Индекс QR выходит за выбранную пачку.']);
+                }
+                $images[$index] = 'data:image/png;base64,'.base64_encode($service->qrPng($targets[$index]['qr_url']));
+            }
+
+            return response()->json(['data' => [
+                'layout' => $layout, 'start_cell' => (int) $data['start_cell'],
+                'box' => $service->contentBox(['width_mm' => $geometry['label_width_mm'], 'height_mm' => $geometry['label_height_mm']]),
+                'images' => (object) $images,
+            ]])->header('Cache-Control', 'private, no-store');
+        }
         [$geometry, $targets, $startCell] = $this->batch($request, $service);
         $layout = $service->layout($geometry, count($targets), $startCell);
         if ($request->is('api/*')) {
@@ -66,14 +93,14 @@ class LabelController extends Controller
     {
         [$geometry, $targets, $startCell] = $this->batch($request, $service);
 
-        return $this->download($service->pdf($geometry, $targets, $startCell), 'skladex-labels-a4.pdf');
+        return $this->download($service->pdf($geometry, $targets, $startCell), 'skladex-labels.pdf');
     }
 
     public function test(Request $request, LabelService $service)
     {
         Access::check($request->user(), 'read');
 
-        return $this->download($service->testPdf($this->geometry($request, $service)), 'skladex-print-test-a4.pdf');
+        return $this->download($service->testPdf($this->geometry($request, $service)), 'skladex-print-test.pdf');
     }
 
     private function batch(Request $request, LabelService $service): array

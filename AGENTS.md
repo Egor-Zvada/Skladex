@@ -2,8 +2,8 @@
 
 Production: Debian 13, PHP 8.4, Laravel 13, MariaDB 11.8, Nginx, Redis. The interface uses Blade and local CSS/JS/fonts; Node and a CDN are not required at runtime. Read README.md and docs/operations.md before changing deployment.
 
-- Keep equipment limited to IT and audio. Server/network racks are equipment; furniture is out of scope.
-- Never mutate the legacy .200 application or automatically import its data. Preserve exact old code and numeric-ID mappings independently; never derive EQ codes from IDs.
+- Keep equipment limited to technical equipment: IT, audio and existing stage lighting. Server/network racks are equipment; furniture is out of scope. Preserve uncategorized legacy items explicitly as unknown.
+- Never mutate the legacy .200 application. Legacy import requires an explicit operator command after backup and preflight; the user authorized the current migration. Preserve exact old code and numeric-ID mappings independently; never derive EQ codes from IDs.
 - Public responses use explicit field allowlists. Never expose license keys, responsible people, network addresses, documents or internal notes.
 - License keys use the separate master key, not APP_KEY. Do not commit secrets, certificates, dumps, logs, generated PDF or .env.
 - Business writes belong in services with authorization, transactions, version checks and audit metadata. API writes require a scoped bearer token and Idempotency-Key. Revealing keys is never replay-cached.

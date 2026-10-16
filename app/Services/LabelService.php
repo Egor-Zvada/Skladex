@@ -56,12 +56,14 @@ class LabelService
             }
             $number = (float) $value;
             if (abs($number) > 1000 || abs(round($number * 100) - $number * 100) > 0.000001) {
-                $this->invalid($field, 'Допустимо не более двух знаков после запятой и значение в пределах листа A4.');
+                $this->invalid($field, 'Допустимо не более двух знаков после запятой.');
             }
             $hundredths[$field] = (int) round($number * 100);
         }
-        if ($hundredths['paper_width_mm'] !== 21000 || $hundredths['paper_height_mm'] !== 29700) {
-            $this->invalid('paper_width_mm', 'Поддерживается вертикальный лист A4: 210 × 297 мм.');
+        foreach (['paper_width_mm', 'paper_height_mm'] as $field) {
+            if ($hundredths[$field] < 5000 || $hundredths[$field] > 42000) {
+                $this->invalid($field, 'Каждая сторона листа должна быть от 50 до 420 мм.');
+            }
         }
         foreach (['label_width_mm', 'label_height_mm'] as $field) {
             if ($hundredths[$field] <= 0) {
@@ -126,6 +128,18 @@ class LabelService
         }
 
         return ['geometry' => $g, 'capacity' => $capacity, 'pages_count' => $pageCount, 'pages' => $pages];
+    }
+
+    /** An empty editor still has one sheet; printable batches remain strictly nonempty. */
+    public function editorLayout(array $geometry, int $count, int $startCell = 1): array
+    {
+        if ($count !== 0) {
+            return $this->layout($geometry, $count, $startCell);
+        }
+        $layout = $this->layout($geometry, 1, $startCell);
+        $layout['pages'] = [[]];
+
+        return $layout;
     }
 
     public function saveProfile(User $actor, array $input): LabelProfile
@@ -218,7 +232,7 @@ class LabelService
     {
         $layout = $this->layout($geometry, count($targets), $startCell);
 
-        return $this->withPdf(function (Dompdf $pdf, string $workspace) use ($layout, $targets) {
+        return $this->withPdf($layout['geometry'], function (Dompdf $pdf, string $workspace) use ($layout, $targets) {
             $canvas = $pdf->getCanvas();
             $font = $pdf->getFontMetrics()->getFont('DejaVu Sans', 'normal');
             if (! $font) {
@@ -262,22 +276,32 @@ class LabelService
         $g = $this->geometry($geometry);
         $layout = $this->layout($g, $g['columns'] * $g['rows']);
 
-        return $this->withPdf(function (Dompdf $pdf) use ($layout) {
+        return $this->withPdf($g, function (Dompdf $pdf) use ($layout, $g) {
             $canvas = $pdf->getCanvas();
             $font = $pdf->getFontMetrics()->getFont('DejaVu Sans', 'normal');
             foreach ($layout['pages'][0] as $cell) {
                 $canvas->rectangle($this->pt($cell['x_mm']), $this->pt($cell['y_mm']), $this->pt($cell['width_mm']), $this->pt($cell['height_mm']), [0.55, 0.55, 0.55], 0.3);
                 $canvas->text($this->pt($cell['x_mm'] + 1), $this->pt($cell['y_mm'] + 1), (string) $cell['cell'], $font, 6);
             }
-            $canvas->text($this->pt(10), $this->pt(2), 'Skladex · Тест A4 · Масштаб печати 100% / Actual size', $font, 9);
-            $canvas->line($this->pt(20), $this->pt(284), $this->pt(120), $this->pt(284), [0, 0, 0], 0.7);
-            foreach ([20, 120] as $x) {
-                $canvas->line($this->pt($x), $this->pt(282), $this->pt($x), $this->pt(286), [0, 0, 0], 0.7);
+            $canvas->text($this->pt(3), $this->pt(2), 'Skladex · 100% / Actual size', $font, 7);
+            // The control line is always exactly 100 mm; small stock never scales it down.
+            if ($g['paper_width_mm'] >= 120) {
+                $y = $g['paper_height_mm'] - 10;
+                $canvas->line($this->pt(10), $this->pt($y), $this->pt(110), $this->pt($y), [0, 0, 0], 0.7);
+                foreach ([10, 110] as $x) {
+                    $canvas->line($this->pt($x), $this->pt($y - 2), $this->pt($x), $this->pt($y + 2), [0, 0, 0], 0.7);
+                }
+                $canvas->text($this->pt(10), $this->pt($y + 3), '100 мм', $font, 8);
             }
-            $canvas->text($this->pt(20), $this->pt(287), 'Контрольный отрезок: ровно 100 мм', $font, 8);
-            $canvas->line($this->pt(195), $this->pt(30), $this->pt(195), $this->pt(130), [0, 0, 0], 0.7);
-            foreach ([30, 130] as $y) {
-                $canvas->line($this->pt(193), $this->pt($y), $this->pt(197), $this->pt($y), [0, 0, 0], 0.7);
+            if ($g['paper_height_mm'] >= 120) {
+                $x = $g['paper_width_mm'] - 5;
+                $canvas->line($this->pt($x), $this->pt(10), $this->pt($x), $this->pt(110), [0, 0, 0], 0.7);
+                foreach ([10, 110] as $y) {
+                    $canvas->line($this->pt($x - 2), $this->pt($y), $this->pt($x + 2), $this->pt($y), [0, 0, 0], 0.7);
+                }
+            }
+            if ($g['paper_width_mm'] < 120 && $g['paper_height_mm'] < 120) {
+                $canvas->text($this->pt(3), $this->pt($g['paper_height_mm'] - 6), 'Лист мал для линии 100 мм', $font, 6);
             }
 
             return $pdf->output();
@@ -289,7 +313,7 @@ class LabelService
         return $millimetres * 72 / 25.4;
     }
 
-    private function withPdf(callable $render): string
+    private function withPdf(array $geometry, callable $render): string
     {
         $root = storage_path('app/private/label-pdf');
         File::ensureDirectoryExists($root, 0700);
@@ -314,7 +338,7 @@ class LabelService
             $options->setPdfBackend('CPDF');
             $pdf = new Dompdf($options);
             // No supplied HTML, CSS, image URL, path, script or font is parsed.
-            $pdf->setPaper([0, 0, $this->pt(210), $this->pt(297)]);
+            $pdf->setPaper([0, 0, $this->pt($geometry['paper_width_mm']), $this->pt($geometry['paper_height_mm'])]);
             $pdf->loadHtml('<!doctype html><html><head><meta charset="utf-8"><style>@page{margin:0}body{margin:0}</style></head><body></body></html>', 'UTF-8');
             $pdf->render();
 

@@ -24,12 +24,14 @@
         $navigation = [
             ['dashboard', 'Обзор', 'dashboard', 'dashboard'],
             ['assets.index', 'Имущество', 'assets', 'assets.*'],
+            ['buildings.index', 'Здания', 'locations', 'buildings.*'],
             ['locations.index', 'Кабинеты', 'locations', 'locations.*'],
             ['inventory.index', 'Инвентаризация', 'inventory', 'inventory.*'],
             ['maintenance.index', 'Обслуживание', 'maintenance', 'maintenance.*'],
             ['software.index', 'ПО и сервисы', 'software', 'software.*'],
             ['licenses.index', 'Лицензии', 'licenses', 'licenses.*'],
             ['labels.index', 'Печать', 'labels', 'labels.*'],
+            ['history.index', 'История', 'inventory', 'history.*'],
         ];
     @endphp
     <div class="app-shell">
@@ -86,7 +88,7 @@
                 @hasSection('header')<div class="page-heading">@yield('header')</div>@endif
                 @yield('content')
             </main>
-            <footer class="workspace-footer"><span class="mono">skladex</span><span>ИТ и аудиооборудование</span></footer>
+            <footer class="workspace-footer"><span class="mono">skladex</span><span>Техническое оборудование</span></footer>
         </div>
     </div>
 </body>

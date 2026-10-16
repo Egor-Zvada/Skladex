@@ -28,6 +28,11 @@ class AssetService
                 Version::check($asset, $data['expected_version'] ?? null);
             } else {
                 $asset = new Asset(['code' => Codes::next('SKX-A')]);
+                if (! empty($data['location_id'])) {
+                    // Recheck inside the graph transaction: a room may have
+                    // been archived after the HTTP request was validated.
+                    Location::whereKey($data['location_id'])->whereNull('archived_at')->lockForUpdate()->firstOrFail();
+                }
             }
             if ($asset->exists && isset($data['category_id']) && (int) $data['category_id'] !== $asset->category_id && PhysicalPlacement::where('parent_asset_id', $asset->id)->lockForUpdate()->get()->isNotEmpty()) {
                 abort_unless(Category::findOrFail($data['category_id'])->kind === $asset->category->kind, 422, 'Сначала снимите установленное оборудование перед изменением типа категории.');

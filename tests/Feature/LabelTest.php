@@ -85,4 +85,38 @@ class LabelTest extends TestCase
     {
         return User::create(['name' => 'Label QA', 'email' => Str::uuid().'@example.invalid', 'password' => 'test-password', 'role' => $role, 'is_active' => true]);
     }
+
+    public function test_live_editor_is_inline_and_empty_preview_is_read_only(): void
+    {
+        $actor = $this->actor('viewer');
+        $this->actingAs($actor)->get(route('labels.index'))->assertOk()->assertSee('data-label-editor', false)->assertSee('/static/label-editor.js', false)->assertDontSee('>Предпросмотр</button>', false);
+        $this->postJson(route('labels.preview'), (new LabelService)->defaults() + ['editor' => true, 'target_type' => 'asset', 'target_ids' => [], 'start_cell' => 5, 'qr_indices' => []])
+            ->assertOk()->assertJsonPath('data.layout.pages_count', 1)->assertJsonPath('data.layout.pages', [[]])->assertJsonPath('data.start_cell', 5);
+        $this->assertSame(0, LabelProfile::count());
+        $this->assertSame(0, Asset::count());
+        $this->postJson(route('labels.preview'), (new LabelService)->defaults() + ['editor' => true, 'target_type' => 'asset', 'target_ids' => [], 'start_cell' => 25])->assertUnprocessable()->assertJsonValidationErrors('start_cell');
+    }
+
+    public function test_live_preview_resolves_typed_targets_and_bounded_qr_indices(): void
+    {
+        $actor = $this->actor('viewer');
+        $room = Location::create(['code' => 'SKX-R-LIVE', 'name' => 'Кабинет QA']);
+        $payload = (new LabelService)->defaults() + ['editor' => true, 'target_type' => 'location', 'target_ids' => [$room->uuid], 'start_cell' => 1, 'qr_indices' => [0]];
+        $this->actingAs($actor)->postJson(route('labels.preview'), $payload)->assertOk()->assertJsonPath('data.layout.pages.0.0.cell', 1)->assertJsonPath('data.images.0', fn ($src) => str_starts_with($src, 'data:image/png;base64,'));
+        foreach ([[1], [-1], [0, 0], ['https://example.invalid/qr.png'], range(0, 24)] as $indices) {
+            $this->postJson(route('labels.preview'), array_replace($payload, ['qr_indices' => $indices]))->assertUnprocessable();
+        }
+        $this->postJson(route('labels.preview'), array_replace($payload, ['target_type' => 'asset']))->assertUnprocessable()->assertJsonValidationErrors('target_ids');
+        $this->postJson(route('labels.preview'), array_replace($payload, ['target_ids' => ['https://example.invalid/target']]))->assertUnprocessable()->assertJsonValidationErrors('target_ids.0');
+        $this->postJson(route('labels.pdf'), array_replace($payload, ['target_ids' => []]))->assertUnprocessable()->assertJsonValidationErrors('target_ids');
+    }
+
+    public function test_profiles_persist_custom_paper_without_a4_database_constraints(): void
+    {
+        $service = new LabelService;
+        $geometry = array_replace($service->defaults(), ['paper_width_mm' => 420, 'paper_height_mm' => 297]);
+        $profile = $service->saveProfile($this->actor(), $geometry + ['name' => 'A3 альбомный']);
+        $this->assertSame('420.00', $profile->fresh()->paper_width_mm);
+        $this->assertSame('297.00', $profile->fresh()->paper_height_mm);
+    }
 }

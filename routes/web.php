@@ -3,8 +3,10 @@
 use App\Http\Controllers\ApiReferenceController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BuildingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\KitController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\PublicController;
@@ -20,6 +22,7 @@ Route::middleware('throttle:public')->group(function () {
     Route::get('/p/r/{location}/qr.png', [PublicController::class, 'qrLocation'])->name('public.location.qr');
     Route::get('/eq/{code}', [PublicController::class, 'legacyAsset'])->name('legacy.asset');
     Route::get('/equipment_card.php', [PublicController::class, 'legacyAsset']);
+    Route::get('/admin/equipment.php', [PublicController::class, 'legacyAsset']);
     Route::get('/cabinet.php', [PublicController::class, 'legacyLocation']);
     Route::get('/cabinet/{code}', [PublicController::class, 'legacyLocation'])->name('legacy.location');
     Route::get('/qr_scan.php', fn () => redirect()->route('public.home'));
@@ -33,6 +36,12 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth', 'permission:read', 'idempotent'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/app', DashboardController::class)->name('dashboard');
+    Route::get('/history', [HistoryController::class, 'index'])->name('history.index');
+    Route::get('/buildings', [BuildingController::class, 'index'])->name('buildings.index');
+    Route::post('/buildings', [BuildingController::class, 'store'])->name('buildings.store');
+    Route::get('/buildings/{building}', [BuildingController::class, 'show'])->name('buildings.show');
+    Route::patch('/buildings/{building}', [BuildingController::class, 'update'])->name('buildings.update');
+    Route::post('/buildings/{building}/archive', [BuildingController::class, 'archive'])->name('buildings.archive');
     Route::get('/assets', [AssetController::class, 'index'])->name('assets.index');
     Route::get('/assets/create', [AssetController::class, 'create'])->name('assets.create');
     Route::post('/assets', [AssetController::class, 'store'])->name('assets.store');

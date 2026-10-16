@@ -54,7 +54,8 @@ class LabelTest extends TestCase
             'too wide' => ['label_width_mm', 100], 'too tall' => ['label_height_mm', 100],
             'nan' => ['label_width_mm', NAN], 'infinite' => ['offset_x_mm', INF],
             'string nan' => ['label_height_mm', 'NaN'], 'array' => ['gap_y_mm', []],
-            'excess precision' => ['offset_x_mm', 0.001], 'wrong paper' => ['paper_height_mm', 300],
+            'excess precision' => ['offset_x_mm', 0.001], 'oversized paper' => ['paper_height_mm', 420.01],
+            'paper below minimum' => ['paper_width_mm', 49.99], 'paper precision' => ['paper_height_mm', 300.001],
             'too many columns' => ['columns', 501], 'zero rows' => ['rows', 0],
             'fractional rows' => ['rows', 1.5], 'over 500 cells' => ['rows', 200],
             'left off page' => ['offset_x_mm', -7.01], 'right off page' => ['offset_x_mm', 7.01],
@@ -91,6 +92,63 @@ class LabelTest extends TestCase
         $actor = new User(['name' => 'Test', 'role' => 'operator', 'is_active' => true]);
         $this->expectException(ValidationException::class);
         (new LabelService)->targets($actor, 'asset', ['https://example.invalid/image.png']);
+    }
+
+    #[DataProvider('supportedPaper')]
+    public function test_presets_landscape_and_custom_use_actual_axes(float $width, float $height): void
+    {
+        $service = new LabelService;
+        $geometry = array_replace($service->defaults(), ['paper_width_mm' => $width, 'paper_height_mm' => $height, 'columns' => 1, 'rows' => 1, 'label_width_mm' => $width - 14, 'label_height_mm' => $height - 20]);
+        $layout = $service->layout($geometry, 1);
+        $cell = $layout['pages'][0][0];
+        $this->assertEquals($width, $layout['geometry']['paper_width_mm']);
+        $this->assertEquals($height, $layout['geometry']['paper_height_mm']);
+        $this->assertLessThanOrEqual($width, $cell['x_mm'] + $cell['width_mm']);
+        $this->assertLessThanOrEqual($height, $cell['y_mm'] + $cell['height_mm']);
+    }
+
+    public static function supportedPaper(): array
+    {
+        return [[210, 297], [297, 210], [297, 420], [420, 297], [148, 210], [210, 148], [50, 50], [123.45, 234.56], [420, 420]];
+    }
+
+    public function test_empty_editor_has_a_sheet_but_no_printable_cells(): void
+    {
+        $service = new LabelService;
+        $layout = $service->editorLayout($service->defaults(), 0, 24);
+        $this->assertSame(1, $layout['pages_count']);
+        $this->assertSame([[]], $layout['pages']);
+        $this->assertSame(24, $layout['capacity']);
+        $this->expectException(ValidationException::class);
+        $service->editorLayout($service->defaults(), 0, 25);
+    }
+
+    public function test_paper_orientation_does_not_silently_rotate_or_resize_the_grid(): void
+    {
+        $service = new LabelService;
+        $this->expectException(ValidationException::class);
+        $service->geometry(array_replace($service->defaults(), ['paper_width_mm' => 297, 'paper_height_mm' => 210]));
+    }
+
+    public function test_five_hundred_targets_respect_the_fifty_page_limit(): void
+    {
+        $service = new LabelService;
+        $g = array_replace($service->defaults(), ['columns' => 2, 'rows' => 5]);
+        $this->assertSame(50, $service->layout($g, 500)['pages_count']);
+        $this->expectException(ValidationException::class);
+        $service->layout($g, 500, 2);
+    }
+
+    public function test_pdf_uses_custom_media_box_instead_of_a4(): void
+    {
+        $service = new LabelService;
+        $g = array_replace($service->defaults(), ['paper_width_mm' => 150, 'paper_height_mm' => 100, 'columns' => 2, 'rows' => 2]);
+        $targets = [['name' => 'Проверка размера', 'code' => 'QA', 'qr_url' => 'https://skladex.invalid/p/a/00000000-0000-4000-8000-000000000001']];
+        foreach ([$service->pdf($g, $targets), $service->testPdf($g)] as $pdf) {
+            $this->assertMatchesRegularExpression('~/MediaBox\s*\[\s*0(?:\.0+)?\s+0(?:\.0+)?\s+425\.1[0-9]+\s+283\.4[0-9]+\s*\]~', $pdf);
+        }
+        $small = array_replace($g, ['paper_width_mm' => 50, 'paper_height_mm' => 50, 'label_width_mm' => 30, 'label_height_mm' => 20, 'columns' => 1, 'rows' => 1]);
+        $this->assertStringStartsWith('%PDF-', $service->testPdf($small));
     }
 
     public function test_pdf_and_calibration_sheet_are_local_a4_documents_without_a_database(): void

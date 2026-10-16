@@ -38,8 +38,8 @@ class PublicController extends Controller
     public function location(Request $r, Location $location)
     {
         abort_unless($location->is_public && ! $location->archived_at, 404);
-        $assets = $location->assets()->whereNull('archived_at')->with('category', 'location')->orderBy('name')->paginate(50);
-        $data = ['id' => $location->uuid, 'code' => $location->code, 'name' => $location->name];
+        $assets = $location->assets()->whereNull('archived_at')->with('category', 'location.building')->orderBy('name')->paginate(50);
+        $data = ['id' => $location->uuid, 'code' => $location->code, 'name' => $location->name, 'building' => $this->buildingData($location)];
         if ($r->expectsJson()) {
             return response()->json(['data' => $data, 'assets' => $assets->getCollection()->map(fn ($a) => $this->assetData($a)), 'pagination' => ['page' => $assets->currentPage(), 'last_page' => $assets->lastPage(), 'total' => $assets->total()]]);
         }
@@ -95,6 +95,13 @@ class PublicController extends Controller
 
     private function assetData(Asset $a): array
     {
-        return ['id' => $a->uuid, 'code' => $a->code, 'name' => $a->name, 'category' => $a->category?->name, 'location' => $a->location ? ['id' => $a->location->uuid, 'code' => $a->location->code, 'name' => $a->location->name] : null, 'status' => $a->status, 'condition' => $a->condition];
+        return ['id' => $a->uuid, 'code' => $a->code, 'name' => $a->name, 'category' => $a->category?->name, 'location' => $a->location ? ['id' => $a->location->uuid, 'code' => $a->location->code, 'name' => $a->location->name, 'building' => $this->buildingData($a->location)] : null, 'status' => $a->status, 'condition' => $a->condition];
+    }
+
+    private function buildingData(Location $location): ?array
+    {
+        $building = $location->building;
+
+        return $building && ! $building->archived_at ? ['id' => $building->uuid, 'name' => $building->name] : null;
     }
 }

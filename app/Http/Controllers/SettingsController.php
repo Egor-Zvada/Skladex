@@ -32,7 +32,7 @@ class SettingsController extends Controller
             'tokens' => $admin ? $request->user()->tokens()->orderByDesc('id')->get(['id', 'tokenable_id', 'tokenable_type', 'name', 'abilities', 'created_at', 'last_used_at', 'expires_at']) : collect(),
             'aliases' => $admin ? QrAlias::orderByDesc('id')->paginate(30) : null,
             'assets' => $admin ? Asset::whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name']) : collect(),
-            'locations' => $admin ? Location::whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name']) : collect(),
+            'locations' => $admin ? Location::with('building')->whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name', 'building_id']) : collect(),
             // Pull removes the secret immediately; browser refresh cannot reveal it again.
             'createdToken' => $admin ? $request->session()->pull('created_api_token') : null,
             'createdTokenName' => $admin ? $request->session()->pull('created_api_token_name') : null,

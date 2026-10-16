@@ -1,12 +1,18 @@
 <?php
 
 use App\Http\Controllers\AssetController;
+use App\Http\Controllers\BuildingController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\KitController;
 use App\Http\Controllers\LocationController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:sanctum', 'permission:read', 'throttle:api', 'idempotent'])->group(function () {
+    Route::get('/buildings', [BuildingController::class, 'index'])->name('api.buildings.index');
+    Route::post('/buildings', [BuildingController::class, 'store'])->name('api.buildings.store');
+    Route::get('/buildings/{building}', [BuildingController::class, 'show'])->name('api.buildings.show');
+    Route::patch('/buildings/{building}', [BuildingController::class, 'update'])->name('api.buildings.update');
+    Route::post('/buildings/{building}/archive', [BuildingController::class, 'archive'])->name('api.buildings.archive');
     Route::get('/categories', [CategoryController::class, 'index'])->name('api.categories.index');
     Route::get('/assets', [AssetController::class, 'index'])->name('api.assets.index');
     Route::post('/assets', [AssetController::class, 'store'])->name('api.assets.store');

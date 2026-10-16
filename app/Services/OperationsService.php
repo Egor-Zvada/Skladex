@@ -506,7 +506,7 @@ final class OperationsService
                 abort_if($overlap, 409, 'Помещения и категории пересекаются с действующей кампанией.');
             }
             foreach ($assets as $asset) {
-                InventorySnapshotItem::create(['inventory_campaign_id' => $row->id, 'asset_id' => $asset->id, 'asset_version' => $asset->version, 'code' => $asset->code, 'name' => $asset->name, 'location_id' => $asset->location_id, 'location_name' => Location::find($asset->location_id)?->name, 'responsible_name' => $asset->responsible_name ?: $asset->responsible?->name, 'status' => $asset->status, 'condition' => $asset->condition, 'created_at' => now()]);
+                InventorySnapshotItem::create(['inventory_campaign_id' => $row->id, 'asset_id' => $asset->id, 'asset_version' => $asset->version, 'code' => $asset->code, 'name' => $asset->name, 'location_id' => $asset->location_id, 'location_name' => Location::with('building')->find($asset->location_id)?->display_name, 'responsible_name' => $asset->responsible_name ?: $asset->responsible?->name, 'status' => $asset->status, 'condition' => $asset->condition, 'created_at' => now()]);
                 DB::table('inventory_asset_reservations')->insert(['asset_id' => $asset->id, 'inventory_campaign_id' => $row->id]);
             }
             $row->scope = $scope + $resolved;
@@ -535,12 +535,12 @@ final class OperationsService
             }
             Version::check($row, $data['expected_version']);
             abort_unless($row->status === 'active', 409, 'Приём наблюдений остановлен.');
-            $location = Location::where('uuid', $data['location_uuid'])->whereNull('archived_at')->firstOrFail();
+            $location = Location::with('building')->where('uuid', $data['location_uuid'])->whereNull('archived_at')->firstOrFail();
             // Parse known QR routes/aliases as data only. The resolver never visits scanned URLs.
             $resolved = app(QrResolver::class)->resolve($data['code']);
             abort_if($resolved instanceof Location, 422, 'Это метка кабинета. Выберите кабинет в контексте обхода и сканируйте метку конкретного предмета.');
             $asset = $resolved instanceof Asset ? Asset::whereKey($resolved->id)->whereNull('archived_at')->lockForUpdate()->first() : null;
-            $observation = $row->observations()->create(['asset_id' => $asset?->id, 'location_id' => $location->id, 'location_name' => $location->name, 'asset_code' => $asset?->code, 'asset_name' => $asset?->name, 'raw_code' => $data['code'], 'asset_version' => $asset?->version, 'method' => $data['method'], 'condition' => $data['condition'] ?? null, 'note' => $data['note'] ?? null, 'actor_id' => $actor->id, 'client_key' => $data['client_key'], 'observed_at' => now(), 'created_at' => now()]);
+            $observation = $row->observations()->create(['asset_id' => $asset?->id, 'location_id' => $location->id, 'location_name' => $location->display_name, 'asset_code' => $asset?->code, 'asset_name' => $asset?->name, 'raw_code' => $data['code'], 'asset_version' => $asset?->version, 'method' => $data['method'], 'condition' => $data['condition'] ?? null, 'note' => $data['note'] ?? null, 'actor_id' => $actor->id, 'client_key' => $data['client_key'], 'observed_at' => now(), 'created_at' => now()]);
             Audit::record('inventory.observed', $observation, ['campaign_id' => $row->id, 'asset_id' => $asset?->id]);
 
             return $observation;

@@ -81,6 +81,11 @@ final class OpenApi
     {
         // summary, body component, response component, success status, extra ability, semantics
         return [
+            'api.buildings.index' => ['Список зданий', null, 'BuildingPage', 200, 'read', 'Активные здания, 50 на странице; locations_count учитывает активные кабинеты. Приватные notes скрыты.'],
+            'api.buildings.store' => ['Создать здание', 'BuildingCreate', 'BuildingResponse', 201, 'write', 'Название здания задаёт оператор; UUID назначается сервером. Кабинеты связываются отдельно через building_id.'],
+            'api.buildings.show' => ['Здание и кабинеты', null, 'BuildingDetail', 200, 'read', 'До 50 активных кабинетов выбранной страницы. Архивное здание — 404.'],
+            'api.buildings.update' => ['Изменить здание', 'BuildingUpdate', 'BuildingResponse', 200, 'write', 'Требуется актуальная expected_version. Адрес и заметки необязательны.'],
+            'api.buildings.archive' => ['Архивировать здание', 'ExpectedVersion', 'OkResponse', 200, 'write', 'Любой активный кабинет, даже пустой, блокирует архивирование. Исторические связи сохраняются; физическое удаление не выполняется.'],
             'api.categories.index' => ['Категории оборудования', null, 'CategoryList', 200, 'read', 'Системные категории ИТ/аудио: числовые ID для создания и фильтрации активов.'],
             'api.assets.index' => ['Список имущества', null, 'AssetPage', 200, 'read', 'Активные карточки, 30 на странице.'],
             'api.assets.store' => ['Создать предмет', 'AssetCreate', 'AssetResponse', 201, 'write', 'Код SKX-A и UUID назначаются сервером; inventory_no не уникален.'],
@@ -143,7 +148,7 @@ final class OpenApi
             'api.inventory.cancel' => ['Отменить кампанию', 'CampaignCancel', 'InventoryCampaign', 200, 'write', 'Только незавершённая кампания, обязательна причина. История не удаляется.'],
             'api.inventory.report' => ['Замороженный отчёт', null, 'InventoryReportPayload', 200, 'read', 'Только closed; до закрытия — 409.'],
             'api.labels.index' => ['Профили печати и выборка', null, 'LabelsIndexResponse', 200, 'read', 'До 500 объектов; truncated показывает усечение выборки.'],
-            'api.labels.store' => ['Сохранить профиль печати', 'LabelProfileCommand', 'LabelProfileResponse', 201, 'write', 'Все размеры в мм с точностью 0.01; A4 210×297; не более 500 ячеек, сетка с offsets должна помещаться. Для изменения укажите profile_id и expected_version.'],
+            'api.labels.store' => ['Сохранить профиль печати', 'LabelProfileCommand', 'LabelProfileResponse', 201, 'write', 'Все размеры в мм с точностью 0.01; каждая сторона листа 50–420 мм; не более 500 ячеек, сетка с offsets должна помещаться. Для изменения укажите profile_id и expected_version.'],
             'api.labels.preview' => ['Рассчитать раскладку этикеток', 'LabelBatch', 'LabelPreviewResponse', 200, 'read', 'POST без изменения данных и без Idempotency-Key. target_type asset/location различает имущество и кабинеты. start_cell от 1, заполнение по строкам; до 500 меток и 50 листов.'],
             'api.labels.pdf' => ['Сформировать PDF наклеек', 'LabelBatch', 'PDFDocument', 200, 'read', 'POST чтения без Idempotency-Key. Локальная генерация QR/PDF. Печатать 100% / Actual size, отключив Fit to page.'],
             'api.labels.test' => ['Контрольный лист печати', 'LabelGeometryOverride', 'PDFDocument', 200, 'read', 'POST чтения без Idempotency-Key. Контрольный отрезок 100 мм; параметры принтера сервис автоматически не измеряет.'],
@@ -174,7 +179,10 @@ final class OpenApi
         $s['AssetMove'] = self::object($version + ['location_id' => self::id(true), 'status' => self::nullable($status), 'reason' => self::string(2000), 'include_children' => ['type' => ['boolean', 'null'], 'default' => false], 'expected_contents' => self::nullable(['type' => 'object', 'propertyNames' => ['type' => 'string', 'format' => 'uuid'], 'additionalProperties' => self::integer(1), 'description' => 'Карта всех физических потомков UUID→version: {"8917eafd-9f49-43e8-8c36-73421836c676":3}. При наличии содержимого должна точно совпадать с актуальным составом.'])], ['expected_version', 'location_id', 'reason']);
         $s['ComponentCreate'] = self::object($version + ['component_type' => self::string(100), 'description' => self::string(500, true), 'quantity' => self::integer(1, 1000), 'serial_no' => self::string(255, true), 'inventory_no' => self::string(255, true), 'child_asset_id' => self::id(true), 'expected_child_version' => self::nullable(self::integer(1))], ['expected_version', 'component_type', 'quantity']) + ['anyOf' => [['required' => ['child_asset_id'], 'properties' => ['child_asset_id' => self::id()]], ['required' => ['description'], 'properties' => ['description' => self::string(500)]]], 'allOf' => [['if' => ['required' => ['child_asset_id'], 'properties' => ['child_asset_id' => self::id()]], 'then' => ['required' => ['expected_child_version'], 'properties' => ['expected_child_version' => self::integer(1), 'quantity' => ['const' => 1]]]]]];
         $s['RackPlacement'] = self::object($version + ['rack_id' => self::id(), 'expected_rack_version' => self::integer(1), 'position' => self::string(100, true)], ['expected_version', 'rack_id', 'expected_rack_version']);
-        $location = ['name' => self::string(255), 'notes' => self::string(5000, true), 'is_public' => ['type' => 'boolean', 'default' => true]];
+        $building = ['name' => self::string(255), 'address' => self::string(255, true), 'notes' => self::string(5000, true)];
+        $s['BuildingCreate'] = self::object($building, ['name']);
+        $s['BuildingUpdate'] = self::object($building + $version, ['name', 'expected_version']);
+        $location = ['name' => self::string(255), 'building_id' => self::id(true), 'notes' => self::string(5000, true), 'is_public' => ['type' => 'boolean', 'default' => true]];
         $s['LocationCreate'] = self::object($location, ['name']);
         $s['LocationUpdate'] = self::object($location + $version, ['name', 'is_public', 'expected_version']);
         $s['KitCreate'] = self::object(['name' => self::string(255), 'description' => self::string(5000, true), 'asset_ids' => self::nullable(self::array(self::id(), 100, unique: true))], ['name']);
@@ -221,8 +229,10 @@ final class OpenApi
         foreach (['paper_width_mm', 'paper_height_mm', 'label_width_mm', 'label_height_mm', 'gap_x_mm', 'gap_y_mm', 'margin_left_mm', 'margin_top_mm', 'offset_x_mm', 'offset_y_mm'] as $field) {
             $geometry[$field] = ['type' => 'number', 'minimum' => str_starts_with($field, 'offset_') ? -1000 : 0, 'maximum' => 1000, 'multipleOf' => 0.01, 'description' => 'Миллиметры. Геометрия проверяется целиком; размеры >0, сетка в пределах листа.'];
         }
-        $geometry['paper_width_mm']['const'] = 210;
-        $geometry['paper_height_mm']['const'] = 297;
+        $geometry['paper_width_mm']['minimum'] = 50;
+        $geometry['paper_width_mm']['maximum'] = 420;
+        $geometry['paper_height_mm']['minimum'] = 50;
+        $geometry['paper_height_mm']['maximum'] = 420;
         $geometry['label_width_mm']['exclusiveMinimum'] = 0;
         $geometry['label_height_mm']['exclusiveMinimum'] = 0;
         $geometry += ['columns' => self::integer(1, 500), 'rows' => self::integer(1, 500)];
@@ -245,18 +255,23 @@ final class OpenApi
         $s['Error'] = self::object(['message' => ['type' => 'string']], ['message']);
         $s['ValidationError'] = self::object(['message' => ['type' => 'string'], 'errors' => ['type' => 'object', 'additionalProperties' => self::array(['type' => 'string'])]], ['message', 'errors']);
         $s['CommandError'] = ['anyOf' => [self::ref('ValidationError'), self::ref('Error')], 'description' => '422 полевой валидации содержит errors; доменное abort(422) может содержать только message.'];
-        $s['Category'] = self::object(['id' => self::id(), 'name' => self::string(255), 'slug' => self::string(255), 'domain' => self::enum(['it', 'audio']), 'kind' => self::enum(['standard', 'computer', 'rack']), 'maintenance_policy' => $policy], ['id', 'name', 'slug', 'domain', 'kind', 'maintenance_policy']);
+        $s['Category'] = self::object(['id' => self::id(), 'name' => self::string(255), 'slug' => self::string(255), 'domain' => self::enum(['it', 'audio', 'stage', 'unknown']), 'kind' => self::enum(['standard', 'computer', 'rack']), 'maintenance_policy' => $policy], ['id', 'name', 'slug', 'domain', 'kind', 'maintenance_policy']);
         $s['CategoryList'] = self::object(['data' => self::array(self::ref('Category'))], ['data']);
         $s['OkResponse'] = self::object(['ok' => ['type' => 'boolean', 'const' => true]], ['ok']);
         $s['UserSummary'] = self::object(['id' => self::id(), 'name' => self::string(255)], ['id', 'name']);
-        $s['Asset'] = self::object($record + ['code' => self::string(64), 'name' => self::string(255), 'category_id' => self::id(), 'location_id' => self::id(true), 'location_uuid' => self::uuid(true), 'inventory_no' => self::string(255, true), 'serial_no' => self::string(255, true), 'manufacturer' => self::string(255, true), 'model' => self::string(255, true), 'status' => $status, 'condition' => $condition, 'maintenance_policy' => $policy], ['id', 'uuid', 'version', 'code', 'name', 'category_id', 'location_id', 'status', 'condition']);
+        $s['BuildingSummary'] = self::object(['id' => self::id(), 'uuid' => self::uuid(), 'name' => self::string(255)], ['id', 'uuid', 'name'], false);
+        $s['Building'] = self::object($record + ['name' => self::string(255), 'address' => self::string(255, true), 'archived_at' => self::datetime(true), 'locations_count' => self::integer(0)] + $timestamps, ['id', 'uuid', 'version', 'name']);
+        $s['BuildingResponse'] = self::object(['data' => self::ref('Building')], ['data']);
+        $s['BuildingPage'] = self::object(['data' => self::array(self::ref('Building')), 'meta' => self::object(['total' => self::integer(0)], ['total'])], ['data', 'meta']);
+        $s['BuildingDetail'] = self::object(['data' => self::ref('Building'), 'locations' => self::array(self::ref('Location')), 'meta' => self::object(['total' => self::integer(0)], ['total'])], ['data', 'locations', 'meta']);
+        $s['Asset'] = self::object($record + ['code' => self::string(64), 'name' => self::string(255), 'category_id' => self::id(), 'location_id' => self::id(true), 'location_uuid' => self::uuid(true), 'building' => self::nullable(self::ref('BuildingSummary')), 'inventory_no' => self::string(255, true), 'serial_no' => self::string(255, true), 'manufacturer' => self::string(255, true), 'model' => self::string(255, true), 'status' => $status, 'condition' => $condition, 'maintenance_policy' => $policy], ['id', 'uuid', 'version', 'code', 'name', 'category_id', 'location_id', 'status', 'condition']);
         $s['AssetResponse'] = self::object(['data' => self::ref('Asset')], ['data']);
         $s['AssetDetail'] = ['allOf' => [self::ref('Asset'), self::object(['responsible_name' => self::string(255, true), 'private_notes' => $nullableText, 'specifications' => self::nullable(['type' => ['object', 'array'], 'description' => 'Внутренние характеристики, не гостевой whitelist.']), 'purchased_on' => self::date(true), 'warranty_until' => self::date(true), 'components' => self::array(self::object(['id' => self::id(), 'component_type' => self::string(100), 'description' => self::string(500), 'quantity' => self::integer(1), 'serial_no' => self::string(255, true), 'inventory_no' => self::string(255, true), 'child_asset' => self::nullable(self::ref('Asset'))], ['id', 'component_type', 'description', 'quantity', 'child_asset'])), 'placement' => self::nullable(self::object(['kind' => self::enum(['component', 'rack']), 'position' => self::string(100, true), 'parent_asset' => self::ref('Asset')], ['kind', 'parent_asset'])), 'contents' => self::array(self::ref('Asset')), 'licenses' => self::array(self::object(['assignment_id' => self::id(), 'uuid' => self::uuid(), 'code' => self::string(64), 'product_name' => self::string(255, true)], ['assignment_id', 'uuid', 'code'])), 'software' => self::array(self::object(['id' => self::id(), 'product_uuid' => self::uuid(), 'product_name' => self::string(255), 'version' => self::integer(1, description: 'Версия записи установки для optimistic locking, не номер выпуска ПО.')], ['id', 'product_uuid', 'product_name', 'version']))], ['components', 'placement', 'contents', 'licenses', 'software'])]];
         $s['AssetDetailResponse'] = self::object(['data' => self::ref('AssetDetail')], ['data']);
         $s['AssetPage'] = self::object(['data' => self::array(self::ref('Asset')), 'meta' => self::object(['page' => self::integer(1), 'last_page' => self::integer(1), 'total' => self::integer(0)], ['page', 'last_page', 'total'])], ['data', 'meta']);
         $s['AssetComponent'] = self::object(['id' => self::id(), 'parent_asset_id' => self::id(), 'child_asset_id' => self::id(true), 'component_type' => self::string(100), 'description' => self::string(500), 'quantity' => self::integer(1), 'serial_no' => self::string(255, true), 'inventory_no' => self::string(255, true), 'installed_at' => self::datetime(), 'removed_at' => self::datetime(true)] + $timestamps, ['id', 'parent_asset_id', 'component_type', 'description', 'quantity']);
         $s['ComponentResponse'] = self::object(['data' => self::ref('AssetComponent')], ['data']);
-        $s['Location'] = self::object($record + ['code' => self::string(64), 'name' => self::string(255), 'parent_id' => self::id(true), 'is_public' => ['type' => 'boolean'], 'archived_at' => self::datetime(true), 'assets_count' => self::integer(0)] + $timestamps, ['id', 'uuid', 'version', 'code', 'name', 'is_public']);
+        $s['Location'] = self::object($record + ['code' => self::string(64), 'name' => self::string(255), 'parent_id' => self::id(true), 'building_id' => self::id(true), 'building' => self::nullable(self::ref('BuildingSummary')), 'is_public' => ['type' => 'boolean'], 'archived_at' => self::datetime(true), 'assets_count' => self::integer(0)] + $timestamps, ['id', 'uuid', 'version', 'code', 'name', 'is_public']);
         $s['LocationResponse'] = self::object(['data' => self::ref('Location')], ['data']);
         $s['LocationDetail'] = self::object(['data' => self::ref('Location'), 'assets' => self::array(self::ref('Asset'))], ['data', 'assets']);
         $s['LocationPage'] = self::object(['data' => self::array(self::ref('Location')), 'meta' => self::object(['total' => self::integer(0)], ['total'])], ['data', 'meta']);
@@ -314,7 +329,7 @@ final class OpenApi
         $s['LabelLayout'] = self::object(['geometry' => self::ref('LabelGeometry'), 'capacity' => self::integer(1, 500), 'pages_count' => self::integer(1, 50), 'pages' => self::array(self::array(self::ref('LabelCell'), 500), 50)], ['geometry', 'capacity', 'pages_count', 'pages']);
         $s['LabelPreviewResponse'] = self::object(['data' => self::object(['layout' => self::ref('LabelLayout'), 'targets' => self::array(self::ref('LabelTarget'), 500), 'start_cell' => self::integer(1, 500)], ['layout', 'targets', 'start_cell'])], ['data']);
         $s['LabelsIndexResponse'] = self::object(['data' => self::object(['profiles' => self::array(self::ref('LabelProfile')), 'geometry' => self::ref('LabelGeometry'), 'targets' => self::array(self::ref('LabelTarget'), 500), 'target_type' => self::enum(['asset', 'location']), 'truncated' => ['type' => 'boolean'], 'limits' => self::object(['labels' => self::integer(1), 'pages' => self::integer(1)], ['labels', 'pages'])], ['profiles', 'geometry', 'targets', 'target_type', 'truncated', 'limits'])], ['data']);
-        $s['PDFDocument'] = ['type' => 'string', 'format' => 'binary', 'description' => 'Готовый PDF A4, Content-Disposition: attachment; no-store.'];
+        $s['PDFDocument'] = ['type' => 'string', 'format' => 'binary', 'description' => 'Готовый PDF выбранного размера, Content-Disposition: attachment; no-store.'];
 
         return $s;
     }
@@ -322,7 +337,7 @@ final class OpenApi
     private static function queryParameters(string $name): array
     {
         $result = [];
-        if ((str_ends_with($name, '.index') && ! in_array($name, ['api.labels.index', 'api.categories.index'], true)) || $name === 'api.locations.show') {
+        if ((str_ends_with($name, '.index') && ! in_array($name, ['api.labels.index', 'api.categories.index'], true)) || in_array($name, ['api.locations.show', 'api.buildings.show'], true)) {
             $result[] = ['name' => 'page', 'in' => 'query', 'schema' => self::integer(1), 'description' => 'Номер страницы с 1; размер страницы фиксирован сервером.'];
         }
         if (in_array($name, ['api.assets.index', 'api.software.index', 'api.licenses.index', 'api.labels.index'], true)) {
@@ -332,6 +347,9 @@ final class OpenApi
             foreach (['category', 'location'] as $field) {
                 $result[] = ['name' => $field, 'in' => 'query', 'schema' => self::id(), 'description' => 'Числовой ID справочника.'];
             }
+        }
+        if (in_array($name, ['api.assets.index', 'api.locations.index'], true)) {
+            $result[] = ['name' => 'building_id', 'in' => 'query', 'schema' => ['anyOf' => [self::id(), ['type' => 'string', 'const' => 'unassigned']]], 'description' => 'Числовой ID здания или unassigned для кабинетов, у которых здание пока не указано. Имущество получает здание через свой кабинет.'];
         }
         if ($name === 'api.labels.index') {
             $result[] = ['name' => 'target_type', 'in' => 'query', 'schema' => self::enum(['asset', 'location']) + ['default' => 'asset']];

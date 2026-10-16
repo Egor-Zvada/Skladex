@@ -27,6 +27,16 @@ class Location extends Model
         return $this->belongsTo(self::class, 'parent_id');
     }
 
+    public function building(): BelongsTo
+    {
+        return $this->belongsTo(Building::class);
+    }
+
+    public function getDisplayNameAttribute(): string
+    {
+        return $this->building?->name ? $this->building->name.' · '.$this->name : $this->name;
+    }
+
     public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id');

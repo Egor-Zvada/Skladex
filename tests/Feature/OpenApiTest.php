@@ -183,7 +183,12 @@ class OpenApiTest extends TestCase
         $this->assertSame(['check', 'inspection', 'number', 'text'], $schemas['ChecklistStep']['properties']['type']['enum']);
         $this->assertSame(500, $schemas['LabelBatch']['properties']['target_ids']['maxItems']);
         $this->assertTrue($schemas['LabelBatch']['properties']['target_ids']['uniqueItems']);
-        $this->assertSame(210, $schemas['LabelGeometry']['properties']['paper_width_mm']['const']);
+        foreach (['paper_width_mm', 'paper_height_mm'] as $field) {
+            $this->assertArrayNotHasKey('const', $schemas['LabelGeometry']['properties'][$field]);
+            $this->assertSame(50, $schemas['LabelGeometry']['properties'][$field]['minimum']);
+            $this->assertSame(420, $schemas['LabelGeometry']['properties'][$field]['maximum']);
+            $this->assertSame(0.01, $schemas['LabelGeometry']['properties'][$field]['multipleOf']);
+        }
         $this->assertSame('integer', $schemas['Asset']['properties']['id']['type']);
         $this->assertSame('uuid', $schemas['Asset']['properties']['uuid']['format']);
     }
