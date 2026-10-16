@@ -59,7 +59,7 @@
         if (window.ZXingBrowser?.BrowserQRCodeReader) return Promise.resolve(window.ZXingBrowser);
         if (qrLibraryPromise) return qrLibraryPromise;
         qrLibraryPromise = new Promise((resolve, reject) => {
-            const source = new URL(script?.dataset.qrLibrary || '/assets/qr-scanner.min.js', window.location.href);
+            const source = new URL(script?.dataset.qrLibrary || '/static/qr-scanner.min.js', window.location.href);
             if (source.origin !== window.location.origin || !/^https?:$/.test(source.protocol)) {
                 reject(new Error('Локальная библиотека сканирования недоступна.'));
                 return;

@@ -7,11 +7,11 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#FAFAFA">
     <title>{{ trim($__env->yieldContent('title', 'Рабочее пространство')) }} · Skladex</title>
-    <link rel="icon" type="image/png" href="{{ asset('assets/link.png') }}">
-    <link rel="preload" href="{{ asset('assets/fonts/InterVariable.woff2') }}" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="{{ asset('assets/skladex.css') }}?v={{ filemtime(public_path('assets/skladex.css')) }}">
+    <link rel="icon" type="image/png" href="{{ asset('static/link.png') }}">
+    <link rel="preload" href="{{ asset('static/fonts/InterVariable.woff2') }}" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="{{ asset('static/skladex.css') }}?v={{ filemtime(public_path('static/skladex.css')) }}">
     @stack('styles')
-    <script id="skladex-script" src="{{ asset('assets/skladex.js') }}?v={{ filemtime(public_path('assets/skladex.js')) }}" data-qr-library="{{ asset('assets/qr-scanner.min.js') }}" defer></script>
+    <script id="skladex-script" src="{{ asset('static/skladex.js') }}?v={{ filemtime(public_path('static/skladex.js')) }}" data-qr-library="{{ asset('static/qr-scanner.min.js') }}" defer></script>
     @stack('scripts')
 </head>
 <body class="app-body">
@@ -36,7 +36,7 @@
         <aside class="app-sidebar" id="app-sidebar" aria-label="Рабочее пространство" tabindex="-1">
             <div class="sidebar-brand-row">
                 <a class="brand" href="{{ $homeUrl }}" aria-label="Skladex — обзор">
-                    <img class="brand-symbol" src="{{ asset('assets/link.png') }}" width="34" height="34" alt="">
+                    <img class="brand-symbol" src="{{ asset('static/link.png') }}" width="34" height="34" alt="">
                     <span class="brand-wordmark">skladex</span>
                 </a>
                 <button type="button" class="icon-button sidebar-close" data-nav-close aria-label="Закрыть меню">@include('partials.icon', ['name' => 'close'])</button>

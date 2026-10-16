@@ -16,7 +16,7 @@
 | Секреты | `/etc/skladex/`; TLS в `tls/`, ключ лицензий `license-master.key` |
 | Резервные копии | `/var/lib/skladex/backups` и `/var/lib/skladex/key-backups` |
 
-Node.js и Vite не нужны для production: Blade использует подготовленные файлы `public/assets`, включая локальные шрифты и QR-библиотеку. Внешнего CDN-резерва нет. Время событий — UTC, календарь и отображение — `SKLADEX_TIMEZONE=Asia/Sakhalin`; синхронизация времени ОС важна для сроков и токенов.
+Node.js и Vite не нужны для production: Blade использует подготовленные файлы `public/static`, включая локальные шрифты и QR-библиотеку. Внешнего CDN-резерва нет. Время событий — UTC, календарь и отображение — `SKLADEX_TIMEZONE=Asia/Sakhalin`; синхронизация времени ОС важна для сроков и токенов.
 
 ## Первичное развёртывание
 

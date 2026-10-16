@@ -3,6 +3,7 @@ set -euo pipefail
 [[ $(id -u) == 0 ]] || { echo 'Run as root'; exit 1; }
 app=/srv/skladex/app
 [[ -f $app/artisan && -d $app/vendor ]] || exit 1
+[[ ! -e $app/public/assets ]] || { echo 'Legacy public/assets shadows the equipment registry. Move it outside public before activation.'; exit 1; }
 chgrp -R skladex "$app"
 find "$app" -type d -exec chmod 0750 {} +
 find "$app" -type f -exec chmod 0640 {} +
