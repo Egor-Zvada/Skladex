@@ -1,10 +1,13 @@
 <?php
 
+use App\Http\Controllers\MaintenancePresetController;
 use App\Http\Controllers\OperationsController as C;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('maintenance')->name('maintenance.')->group(function () {
     Route::get('/', [C::class, 'index'])->name('index');
+    Route::get('/presets', [MaintenancePresetController::class, 'index'])->name('presets.index');
+    Route::post('/presets/apply', [MaintenancePresetController::class, 'apply'])->name('presets.apply');
     Route::post('/work', [C::class, 'storeWork'])->name('work.store');
     Route::get('/work/{work}', [C::class, 'showWork'])->name('work.show');
     Route::post('/work/{work}/transition', [C::class, 'transitionWork'])->name('work.transition');

@@ -8,6 +8,7 @@ use App\Models\QrAlias;
 use App\Models\User;
 use App\Support\Access;
 use App\Support\Audit;
+use App\Support\Codes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,7 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class SettingsController extends Controller
 {
-    public const TOKEN_ABILITIES = ['read' => 'Чтение API', 'write' => 'Изменение оборудования и данных', 'accept-work' => 'Принятие результатов обслуживания', 'reveal-license' => 'Раскрытие лицензионного ключа'];
+    public const TOKEN_ABILITIES = ['read' => 'Чтение API', 'write' => 'Изменение оборудования и данных', 'accept-work' => 'Принятие результатов обслуживания', 'reveal-license' => 'Раскрытие лицензионного ключа', 'purge-assets' => 'Необратимое удаление списанного имущества'];
 
     public function index(Request $request)
     {
@@ -31,7 +32,7 @@ class SettingsController extends Controller
             'users' => $admin ? User::orderBy('name')->get() : collect(),
             'tokens' => $admin ? $request->user()->tokens()->orderByDesc('id')->get(['id', 'tokenable_id', 'tokenable_type', 'name', 'abilities', 'created_at', 'last_used_at', 'expires_at']) : collect(),
             'aliases' => $admin ? QrAlias::orderByDesc('id')->paginate(30) : null,
-            'assets' => $admin ? Asset::whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name']) : collect(),
+            'assets' => $admin ? Asset::whereNull('archived_at')->where('status', '!=', 'written_off')->orderBy('name')->get(['id', 'uuid', 'code', 'name']) : collect(),
             'locations' => $admin ? Location::with('building')->whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name', 'building_id']) : collect(),
             // Pull removes the secret immediately; browser refresh cannot reveal it again.
             'createdToken' => $admin ? $request->session()->pull('created_api_token') : null,
@@ -79,11 +80,19 @@ class SettingsController extends Controller
             $actor = $this->lockedActor($request->user(), 'manage-users');
             $target = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
             abort_unless(hash_equals(self::userRevision($target), $data['expected_state']), 409, 'Пользователь изменился. Обновите страницу и проверьте актуальные права.');
+            if ($target->auth_provider === 'ldap') {
+                foreach (['name', 'username', 'email', 'role'] as $field) {
+                    abort_if(array_key_exists($field, $data) && $data[$field] !== $target->$field, 422, 'Имя, логин, почта и роль доменной учётной записи управляются через Active Directory.');
+                }
+            }
             $active = (bool) $data['is_active'];
             abort_if($target->id === $actor->id && (! $active || $data['role'] !== $target->role), 409, 'Собственную роль и активность меняет другой администратор.');
             if ($target->role === 'admin' && $target->is_active && (! $active || $data['role'] !== 'admin')) {
                 $admins = User::where('role', 'admin')->where('is_active', true)->orderBy('id')->lockForUpdate()->get(['id']);
                 abort_if($admins->count() < 2, 409, 'Нельзя отключить или понизить последнего активного администратора.');
+                if ($target->auth_provider === 'local') {
+                    abort_if(User::where('auth_provider', 'local')->where('role', 'admin')->where('is_active', true)->lockForUpdate()->get(['id'])->count() < 2, 409, 'Нельзя отключить последнего локального администратора: он нужен при недоступности домена.');
+                }
             }
             $before = ['role' => $target->role, 'is_active' => $target->is_active];
             $rightsChanged = $target->role !== $data['role'] || $target->is_active !== $active;
@@ -120,6 +129,7 @@ class SettingsController extends Controller
     public function password(Request $request)
     {
         Access::check($request->user(), 'read');
+        abort_if($request->user()->auth_provider === 'ldap', 422, 'Пароль доменной учётной записи меняется в Active Directory.');
         $data = $request->validate(['current_password' => 'required|string|max:1024|current_password:web', 'password' => 'required|string|min:12|max:128|confirmed|different:current_password']);
         $updated = DB::transaction(function () use ($request, $data) {
             $actor = $this->lockedActor($request->user(), 'read');
@@ -148,7 +158,7 @@ class SettingsController extends Controller
         abort_unless(config('session.encrypt'), 503, 'Для однократной выдачи токена требуется SESSION_ENCRYPT=true.');
         $data = $request->validate([
             'name' => ['required', 'string', 'max:100', 'not_regex:/[\p{Cc}\p{Cf}]/u'],
-            'abilities' => 'required|array|min:1|max:4', 'abilities.*' => ['required', 'string', 'distinct', Rule::in(array_keys(self::TOKEN_ABILITIES))],
+            'abilities' => 'required|array|min:1|max:5', 'abilities.*' => ['required', 'string', 'distinct', Rule::in(array_keys(self::TOKEN_ABILITIES))],
             'expires_in_days' => 'required|integer|min:1|max:365',
         ]);
         if (! in_array('read', $data['abilities'], true)) {
@@ -200,7 +210,10 @@ class SettingsController extends Controller
         }
         DB::transaction(function () use ($request, $data, $value) {
             $this->lockedActor($request->user(), 'configure');
+            Codes::lockPhysicalGraph();
+            abort_if(DB::table('retired_asset_codes')->where('code', $value)->exists(), 409, 'Код удалённого предмета зарезервирован и не переназначается.');
             $target = ($data['target_type'] === 'asset' ? Asset::query() : Location::query())->where('uuid', $data['target_uuid'])->whereNull('archived_at')->lockForUpdate()->firstOrFail();
+            abort_if($target instanceof Asset && $target->status === 'written_off', 422, 'Нельзя назначить новую метку списанному предмету.');
             foreach ([Asset::class => 'asset', Location::class => 'location'] as $model => $kind) {
                 $current = $model::where('code', $value)->first();
                 abort_if($current && ($kind !== $data['target_type'] || $current->id !== $target->id), 409, 'Такой код уже принадлежит другому объекту.');

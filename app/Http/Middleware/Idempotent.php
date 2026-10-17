@@ -13,6 +13,9 @@ class Idempotent
 {
     public function handle(Request $request, Closure $next)
     {
+        if ($request->routeIs('writeoffs.purge', 'api.writeoffs.purge')) {
+            Access::check($request->user(), 'purge-assets');
+        }
         if ($request->routeIs('licenses.reveal', 'api.licenses.reveal', 'labels.pdf', 'api.labels.pdf', 'labels.test', 'api.labels.test', 'labels.preview', 'api.labels.preview')) {
             return $next($request);
         }

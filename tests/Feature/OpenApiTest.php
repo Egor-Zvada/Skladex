@@ -164,6 +164,23 @@ class OpenApiTest extends TestCase
         $this->assertArrayHasKey('remaining', $schemas['LicenseUsage']['properties']);
     }
 
+    public function test_documents_writeoffs_and_presets_publish_explicit_private_contracts(): void
+    {
+        $document = OpenApi::document();
+        $purge = $document['paths']['/api/v1/writeoffs/{asset}/purge']['post'];
+        $this->assertSame(['admin'], $purge['x-roles']);
+        $this->assertSame(['read', 'write', 'purge-assets'], $purge['x-token-abilities']);
+        $this->assertTrue($purge['x-idempotency-required']);
+        $schemas = $document['components']['schemas'];
+        $this->assertSame(100, $schemas['GeneratedDocumentCreate']['properties']['asset_ids']['maxItems']);
+        $this->assertContains('confirmation_code', $schemas['WriteoffPurgeCommand']['required']);
+        $this->assertSame(500, $schemas['MaintenancePresetApply']['properties']['asset_uuids']['maxItems']);
+        $this->assertSame(['read'], $document['paths']['/api/v1/maintenance/presets']['get']['x-token-abilities']);
+        $queries = array_column($document['paths']['/api/v1/document-records']['get']['parameters'], 'name');
+        $this->assertContains('status', $queries);
+        $this->assertContains('template_key', $queries);
+    }
+
     public function test_domain_commands_document_conditional_rules_and_safe_movement(): void
     {
         $schemas = OpenApi::document()['components']['schemas'];

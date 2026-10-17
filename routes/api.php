@@ -31,7 +31,7 @@ Route::middleware(['auth:sanctum', 'permission:read', 'throttle:api', 'idempoten
     Route::get('/kits', [KitController::class, 'index'])->name('api.kits.index');
     Route::post('/kits', [KitController::class, 'store'])->name('api.kits.store');
     Route::post('/kits/{kit}/members', [KitController::class, 'member'])->name('api.kits.members');
-    foreach (['catalog-api', 'operations-api', 'labels-api'] as $file) {
+    foreach (['catalog-api', 'operations-api', 'labels-api', 'document-records-api', 'writeoffs-api'] as $file) {
         if (is_file(__DIR__."/$file.php")) {
             require __DIR__."/$file.php";
         }

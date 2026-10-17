@@ -16,7 +16,7 @@ class User extends Authenticatable
 
     protected $fillable = ['name', 'email', 'username', 'password', 'role', 'is_active'];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'remember_token', 'directory_guid'];
 
     /**
      * Get the attributes that should be cast.
@@ -29,6 +29,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'directory_checked_at' => 'immutable_datetime',
         ];
     }
 }

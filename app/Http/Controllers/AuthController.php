@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\DirectoryAuthService;
+use App\Services\DirectoryGateway;
+use App\Services\DirectoryUnavailable;
 use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,15 +16,32 @@ class AuthController extends Controller
 {
     public function login()
     {
-        return view('auth.login');
+        return view('auth.login', ['directoryEnabled' => app(DirectoryGateway::class)->enabled()]);
     }
 
-    public function authenticate(Request $r)
+    public function authenticate(Request $r, DirectoryAuthService $directory)
     {
         $data = $r->validate(['email' => 'required|string|max:255', 'password' => 'required|string|max:1024']);
         $identifier = mb_strtolower(trim($data['email']));
         $field = str_contains($identifier, '@') ? 'email' : 'username';
-        if (! Auth::attempt([$field => $identifier, 'password' => $data['password'], 'is_active' => true])) {
+        // Local identities are never linked to LDAP by a matching login/email.
+        // A local password failure also never falls through to a directory bind.
+        $local = User::where($field, $identifier)->where('auth_provider', 'local')->first();
+        $authenticated = false;
+        if ($local) {
+            $authenticated = Auth::attempt([$field => $identifier, 'password' => $data['password'], 'is_active' => true, 'auth_provider' => 'local']);
+        } else {
+            try {
+                $user = $directory->authenticate($identifier, $data['password']);
+            } catch (DirectoryUnavailable $e) {
+                throw ValidationException::withMessages(['email' => 'Доменный вход временно недоступен. Попробуйте позже; локальный вход администратора сохранён.']);
+            }
+            if ($user) {
+                Auth::login($user);
+                $authenticated = true;
+            }
+        }
+        if (! $authenticated) {
             throw ValidationException::withMessages(['email' => 'Не удалось войти. Проверьте логин или почту и пароль.']);
         }
         $r->session()->regenerate();

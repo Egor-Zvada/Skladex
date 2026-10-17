@@ -1,0 +1,8 @@
+@extends('layouts.app')
+@section('title','Списание')
+@section('content')
+<div class="page-header"><div><p class="eyebrow">Жизненный цикл оборудования</p><h1>Списание</h1><p class="muted">{{ $assets->total() }} предметов · исключены из основного реестра</p></div><a class="button button-secondary" href="{{ route('assets.index') }}">К имуществу</a></div>
+<p class="alert">Предметы хранятся здесь до вашего решения. Автоматического удаления нет. Оператор может вернуть предмет в учёт, администратор — удалить его после проверки связей.</p>
+<form method="get" class="panel form-grid"><label class="field" for="writeoff-q">Поиск списанного оборудования<input type="search" id="writeoff-q" name="q" value="{{ request('q') }}" placeholder="Название, код или инвентарный номер" maxlength="150"></label><div class="actions"><button class="button button-secondary">Найти</button></div></form>
+<div class="panel table-wrap"><table class="table"><thead><tr><th>Оборудование</th><th>Категория</th><th>Последний кабинет</th><th>Инв. номер</th></tr></thead><tbody>@forelse($assets as $asset)<tr><td><a href="{{ route('writeoffs.show',$asset) }}"><strong>{{ $asset->name }}</strong></a><div class="mono muted">{{ $asset->code }}</div></td><td>{{ $asset->category?->name }}</td><td>{{ $asset->location?->display_name ?? '—' }}</td><td class="mono">{{ $asset->inventory_no ?? '—' }}</td></tr>@empty<tr><td colspan="4"><div class="empty-state"><h2>Списанного оборудования нет</h2><p>Списание доступно в карточке имущества с указанием причины.</p></div></td></tr>@endforelse</tbody></table></div>{{ $assets->links() }}
+@endsection

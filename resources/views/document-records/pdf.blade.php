@@ -1,0 +1,13 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>{{ $record->title }}</title><style>
+@page{margin:18mm 15mm 20mm}body{font-family:"DejaVu Sans",sans-serif;font-size:9pt;line-height:1.4;color:#111}h1{word-wrap:break-word;font-size:15pt;line-height:1.25;margin:10pt 0}p{margin:8pt 0;overflow-wrap:break-word;word-wrap:break-word}.center{text-align:center}.muted{color:#555;font-size:8pt}.body{white-space:pre-wrap;overflow-wrap:break-word;word-wrap:break-word}.signature{margin-top:24pt}table{border-collapse:collapse;width:100%;table-layout:fixed;margin-top:12pt;font-size:7pt}thead{display:table-header-group;page-break-inside:avoid;page-break-after:avoid}tbody tr:first-child{page-break-before:avoid}tr{page-break-inside:avoid}td,th{border:0.6pt solid #777;padding:5pt;text-align:left;vertical-align:top;overflow-wrap:break-word;word-wrap:break-word}th{background:#eee}.c-number{width:4%}.c-name{width:30%}.c-code{width:20%}.c-serial{width:20%}.c-room{width:26%}
+</style></head><body>
+@if($record->organization)<p class="center">{{ $record->organization }}</p>@endif
+<p class="center muted">{{ $record->status === 'draft' ? 'ЧЕРНОВИК · ' : '' }}ЧЕРНОВОЙ ШАБЛОН</p>
+<h1 class="center">{{ $record->title }}</h1><p class="center">{{ $record->number }} от {{ $record->document_date->format('d.m.Y') }}</p>
+@if($record->author_name)<p>Составитель / передающая сторона: {{ $record->author_name }}</p>@endif
+@if($record->recipient_name)<p>Получатель / принимающая сторона: {{ $record->recipient_name }}</p>@endif
+<p>{{ $record->template_snapshot['introduction'] }}</p><div class="body">{{ $record->body }}</div>
+<table><thead><tr><th class="c-number">№</th><th class="c-name">Оборудование</th><th class="c-code">Код / инв. №</th><th class="c-serial">Серийный №</th><th class="c-room">Местонахождение</th></tr></thead><tbody>
+@foreach($record->items as $item)@php($snapshot = $item->snapshot)<tr><td>{{ $item->position }}</td><td>{{ $snapshot['name'] }}@if($snapshot['manufacturer'] || $snapshot['model'])<br>{{ trim(($snapshot['manufacturer'] ?? '').' '.($snapshot['model'] ?? '')) }}@endif</td><td>{{ $snapshot['code'] }}<br>{{ $snapshot['inventory_no'] ?: '—' }}</td><td>{{ $snapshot['serial_no'] ?: '—' }}</td><td>@if($snapshot['building_name']){{ $snapshot['building_name'] }}<br>@endif{{ $snapshot['location_name'] ?: 'Кабинет не указан' }}</td></tr>@endforeach
+</tbody></table><p class="signature">{{ $record->template_snapshot['signature'] }}</p><p class="muted">{{ $record->template_snapshot['notice'] }}</p><p class="muted">Реквизиты оборудования сохранены при создании документа в Skladex. Редакция {{ $record->version }}.</p>
+</body></html>

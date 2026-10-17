@@ -2,20 +2,22 @@
 @section('title','Профиль и настройки')
 @section('content')
 <div class="page-header"><div><h1>Профиль и настройки</h1><p class="muted">Учётная запись, пароль и доступ к Skladex.</p></div></div>
-<section class="panel"><h2>Мой профиль</h2><div class="form-grid"><div><span class="muted">Имя</span><p>{{ $profile->name }}</p></div><div><span class="muted">Логин</span><p>{{ $profile->username ?: 'Не задан — вход по почте' }}</p></div><div><span class="muted">Почта</span><p>{{ $profile->email }}</p></div><div><span class="muted">Роль</span><p>{{ ['admin'=>'Администратор','operator'=>'Специалист','viewer'=>'Наблюдатель'][$profile->role] ?? $profile->role }}</p></div></div></section>
+<section class="panel"><h2>Мой профиль</h2><div class="form-grid"><div><span class="muted">Имя</span><p>{{ $profile->name }}</p></div><div><span class="muted">Логин</span><p>{{ $profile->auth_provider === 'ldap' ? 'Доменная учётная запись' : ($profile->username ?: 'Не задан — вход по почте') }}</p></div><div><span class="muted">Почта</span><p>{{ $profile->email }}</p></div><div><span class="muted">Роль</span><p>{{ ['admin'=>'Администратор','operator'=>'Специалист','viewer'=>'Наблюдатель'][$profile->role] ?? $profile->role }}</p></div></div></section>
+@if($profile->auth_provider === 'ldap')<p class="panel muted">Пароль доменной учётной записи меняется в Active Directory.</p>@else
 <details class="panel" @if($errors->hasAny(['current_password','password','password_confirmation'])) open @endif><summary>Изменить мой пароль</summary><form method="post" action="{{ route('settings.password') }}" class="stack">@csrf<input type="hidden" name="idempotency_key" value="{{ (string)\Illuminate\Support\Str::uuid() }}"><label class="field">Текущий пароль<input name="current_password" type="password" autocomplete="current-password" required maxlength="1024"></label><label class="field">Новый пароль — не менее 12 символов<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><label class="field">Повторите новый пароль<input name="password_confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><p class="muted">После смены пароля другие веб-сеансы и все мои API-токены будут отозваны. Этот сеанс останется открытым.</p><button class="button button-primary">Изменить пароль</button></form></details>
+@endif
 @if($admin)
 <section class="panel"><h2>Пользователи</h2><p class="muted">Управление доступно администраторам. Собственную роль и активность меняет другой администратор. Отключение последнего активного администратора запрещено.</p>
 @foreach($users as $user)
-<details class="panel"><summary>{{ $user->name }} @if($user->username) · {{ $user->username }} @endif · {{ ['admin'=>'Администратор','operator'=>'Специалист','viewer'=>'Наблюдатель'][$user->role] }} · {{ $user->is_active ? 'Активен' : 'Заблокирован' }}</summary>
+<details class="panel"><summary>{{ $user->name }} @if($user->auth_provider === 'ldap') · Доменная @elseif($user->username) · {{ $user->username }} @endif · {{ ['admin'=>'Администратор','operator'=>'Специалист','viewer'=>'Наблюдатель'][$user->role] }} · {{ $user->is_active ? 'Активен' : 'Заблокирован' }}</summary>
 <form method="post" action="{{ route('settings.users.update',$user->id) }}" class="stack">@csrf
 <input type="hidden" name="idempotency_key" value="{{ (string)\Illuminate\Support\Str::uuid() }}">
 <input type="hidden" name="expected_state" value="{{ \App\Http\Controllers\SettingsController::userRevision($user) }}">
-<label class="field">Имя<input name="name" value="{{ $user->name }}" required maxlength="100"></label>
-<label class="field">Логин — необязательно<input name="username" value="{{ $user->username }}" minlength="3" maxlength="64" pattern="[a-z0-9._\-]{3,64}" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+<label class="field">Имя<input name="name" value="{{ $user->name }}" required maxlength="100" @readonly($user->auth_provider === 'ldap')></label>
+<label class="field">Логин — необязательно<input name="username" value="{{ $user->username }}" @readonly($user->auth_provider === 'ldap') minlength="3" maxlength="64" pattern="[a-z0-9._\-]{3,64}" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
 <p class="muted">От 3 до 64 символов: a–z, 0–9, точка, подчёркивание и дефис. Пустой логин оставляет вход по почте.</p>
-<label class="field">Почта<input name="email" type="email" value="{{ $user->email }}" required maxlength="255"></label>
-<label class="field">Роль<select name="role">@foreach(['viewer'=>'Наблюдатель','operator'=>'Специалист','admin'=>'Администратор'] as $role=>$label)<option value="{{ $role }}" @selected($user->role===$role)>{{ $label }}</option>@endforeach</select></label>
+<label class="field">Почта<input name="email" type="email" value="{{ $user->email }}" required maxlength="255" @readonly($user->auth_provider === 'ldap')></label>
+@if($user->auth_provider === 'ldap')<input type="hidden" name="role" value="{{ $user->role }}"><p class="muted">Имя, логин, почта и роль приходят из Active Directory. Здесь можно заблокировать доступ к Skladex.</p>@else<label class="field">Роль<select name="role">@foreach(['viewer'=>'Наблюдатель','operator'=>'Специалист','admin'=>'Администратор'] as $role=>$label)<option value="{{ $role }}" @selected($user->role===$role)>{{ $label }}</option>@endforeach</select></label>@endif
 <input type="hidden" name="is_active" value="0"><label><input name="is_active" type="checkbox" value="1" @checked($user->is_active)> Активен</label>
 <p class="muted">При изменении логина, почты, роли или блокировке сеансы и токены этого пользователя отзываются. Если меняете собственный логин или почту, потребуется войти снова. Пароль через эту форму не изменяется.</p>
 <button class="button button-secondary">Сохранить пользователя</button></form></details>
@@ -23,7 +25,7 @@
 <details class="panel"><summary>Создать пользователя</summary><form method="post" action="{{ route('settings.users.store') }}" class="stack">@csrf
 <input type="hidden" name="idempotency_key" value="{{ (string)\Illuminate\Support\Str::uuid() }}">
 <label class="field">Имя<input name="name" required maxlength="100" autocomplete="off"></label>
-<label class="field">Логин — необязательно<input name="username" value="{{ old('username') }}" minlength="3" maxlength="64" pattern="[a-z0-9._\-]{3,64}" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+<label class="field">Логин — необязательно<input name="username" value="{{ is_string(old('username')) ? old('username') : '' }}" minlength="3" maxlength="64" pattern="[a-z0-9._\-]{3,64}" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
 <p class="muted">От 3 до 64 символов: a–z, 0–9, точка, подчёркивание и дефис. Без логина пользователь входит по почте.</p>
 <label class="field">Почта<input name="email" type="email" required maxlength="255" autocomplete="off"></label>
 <label class="field">Роль<select name="role"><option value="viewer">Наблюдатель</option><option value="operator">Специалист</option><option value="admin">Администратор</option></select></label>

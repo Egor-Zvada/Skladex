@@ -8,6 +8,7 @@ use App\Models\SoftwareProduct;
 use App\Models\WorkOrder;
 use App\Support\Access;
 use App\Support\Audit;
+use App\Support\Codes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -28,8 +29,12 @@ class DocumentController extends Controller
         $file = $r->file('file');
         $uuid = (string) Str::uuid();
         $path = $file->storeAs('documents', $uuid.'.'.$file->guessExtension(), 'local');
+        abort_unless(is_string($path) && $path !== '', 503, 'Не удалось сохранить файл.');
         try {
             DB::transaction(function () use ($r, $file, $path, $uuid, $model, $fk) {
+                Codes::lockPhysicalGraph();
+                $model = $model->newQuery()->whereKey($model->id)->lockForUpdate()->firstOrFail();
+                abort_if($model->getAttribute('archived_at'), 409, 'Карточка уже находится в архиве.');
                 $doc = Document::create(['uuid' => $uuid, $fk => $model->id, 'uploaded_by' => $r->user()->id, 'path' => $path, 'original_name' => mb_substr(basename($file->getClientOriginalName()), 0, 200), 'mime_type' => $file->getMimeType(), 'size' => $file->getSize(), 'sha256' => hash_file('sha256', Storage::disk('local')->path($path))]);
                 Audit::record('document.uploaded', $doc, ['bytes' => $doc->size]);
             });

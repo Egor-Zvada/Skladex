@@ -17,7 +17,7 @@ class Access
         return match ($ability) {
             'read' => in_array($role, ['admin', 'operator', 'viewer'], true),
             'write','accept-work' => in_array($role, ['admin', 'operator'], true),
-            'manage-users','manage-api','configure','reveal-license' => $role === 'admin',
+            'manage-users','manage-api','configure','reveal-license','purge-assets' => $role === 'admin',
             default => false,
         };
     }

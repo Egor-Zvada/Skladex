@@ -23,7 +23,7 @@ class OperationsController extends Controller
 
     private function choices(): array
     {
-        return ['assets' => Asset::whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name']), 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name', 'building_id']), 'users' => User::where('is_active', true)->orderBy('name')->get(['id', 'name']), 'installations' => SoftwareInstallation::with('product')->whereNull('archived_at')->orderBy('id')->get(), 'categories' => Category::orderBy('name')->get()];
+        return ['assets' => Asset::whereNull('archived_at')->where('status', '!=', 'written_off')->orderBy('name')->get(['id', 'uuid', 'code', 'name']), 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get(['id', 'uuid', 'code', 'name', 'building_id']), 'users' => User::where('is_active', true)->orderBy('name')->get(['id', 'name']), 'installations' => SoftwareInstallation::with('product')->whereNull('archived_at')->orderBy('id')->get(), 'categories' => Category::orderBy('name')->get()];
     }
 
     public function index(Request $request)

@@ -102,6 +102,7 @@ final class OperationsService
         $data = Validator::make($input, ['expected_version' => 'required|integer|min:1', 'decision' => ['required', Rule::in(['accepted', 'rejected', 'needs_info', 'merged'])], 'reason' => 'required|string|max:10000', 'work_order_uuid' => 'nullable|uuid'])->validate();
 
         return DB::transaction(function () use ($actor, $request, $data) {
+            Codes::lockPhysicalGraph();
             $row = MaintenanceRequest::whereKey($request->id)->lockForUpdate()->firstOrFail();
             Version::check($row, $data['expected_version']);
             abort_unless(in_array($row->status, ['new', 'needs_info'], true), 409, 'По заявке уже принято решение.');
@@ -208,7 +209,11 @@ final class OperationsService
         $data = Validator::make($input, ['expected_version' => 'required|integer|min:1', 'note' => 'required|string|max:10000', 'counts_for_plan' => 'required|boolean'])->validate();
 
         return DB::transaction(function () use ($actor, $work, $data) {
-            // All plan-related commands lock plan -> occurrence -> work, including cancellation/replacement.
+            // Follow-up work has an asset FK: keep the same graph -> asset -> plan -> work order as write-off.
+            Codes::lockPhysicalGraph();
+            if ($work->asset_id) {
+                Asset::whereKey($work->asset_id)->lockForUpdate()->firstOrFail();
+            }
             $plan = null;
             $occurrence = null;
             if ($work->maintenance_occurrence_id) {
@@ -296,6 +301,8 @@ final class OperationsService
         ] + $this->checklistRules())->validate();
 
         return DB::transaction(function () use ($plan, $data) {
+            $asset = $this->lockPlanSubject($plan);
+            abort_if($data['status'] === 'active' && $plan->asset_id && (! $asset || $asset->archived_at || $asset->status === 'written_off'), 422, 'Нельзя включить регламент списанного или архивного предмета.');
             $row = MaintenancePlan::whereKey($plan->id)->lockForUpdate()->firstOrFail();
             Version::check($row, $data['expected_version']);
             $scheduleChanged = false;
@@ -362,6 +369,7 @@ final class OperationsService
         Access::check($actor, 'write');
 
         return DB::transaction(function () use ($plan, $expected) {
+            $this->lockPlanSubject($plan);
             $row = MaintenancePlan::whereKey($plan->id)->lockForUpdate()->firstOrFail();
             Version::check($row, $expected);
 
@@ -372,6 +380,12 @@ final class OperationsService
     private function generateOnePlan(int $id): ?WorkOrder
     {
         return DB::transaction(function () use ($id) {
+            Codes::lockPhysicalGraph();
+            $subject = MaintenancePlan::find($id);
+            if (! $subject) {
+                return null;
+            }
+            $this->lockPlanSubject($subject);
             $plan = MaintenancePlan::whereKey($id)->lockForUpdate()->firstOrFail();
             if ($plan->status !== 'active' || ! $plan->next_due_on) {
                 return null;
@@ -410,6 +424,9 @@ final class OperationsService
         $data = Validator::make($input, ['expected_version' => 'required|integer|min:1', 'action' => ['required', Rule::in(['retry', 'skip'])], 'reason' => 'required|string|max:10000'])->validate();
 
         return DB::transaction(function () use ($actor, $occurrence, $data) {
+            $subject = MaintenancePlan::findOrFail($occurrence->maintenance_plan_id);
+            $asset = $this->lockPlanSubject($subject);
+            abort_if($data['action'] === 'retry' && $subject->asset_id && (! $asset || $asset->archived_at || $asset->status === 'written_off'), 422, 'Нельзя назначить повторную работу списанному предмету.');
             $plan = MaintenancePlan::whereKey($occurrence->maintenance_plan_id)->lockForUpdate()->firstOrFail();
             Version::check($plan, $data['expected_version']);
             $row = MaintenanceOccurrence::whereKey($occurrence->id)->lockForUpdate()->firstOrFail();
@@ -720,14 +737,22 @@ final class OperationsService
         return ['asset_uuid' => 'nullable|uuid|exists:assets,uuid', 'software_installation_id' => 'nullable|integer|exists:software_installations,id'];
     }
 
+    private function lockPlanSubject(MaintenancePlan $plan): ?Asset
+    {
+        Codes::lockPhysicalGraph();
+
+        return $plan->asset_id ? Asset::whereKey($plan->asset_id)->lockForUpdate()->first() : null;
+    }
+
     private function subject(array $data, bool $forPlan = false): array
     {
-        $asset = empty($data['asset_uuid']) ? null : Asset::where('uuid', $data['asset_uuid'])->whereNull('archived_at')->firstOrFail();
+        Codes::lockPhysicalGraph();
+        $asset = empty($data['asset_uuid']) ? null : Asset::where('uuid', $data['asset_uuid'])->whereNull('archived_at')->lockForUpdate()->firstOrFail();
         $software = empty($data['software_installation_id']) ? null : SoftwareInstallation::whereKey($data['software_installation_id'])->whereNull('archived_at')->firstOrFail();
         if (($asset === null) === ($software === null)) {
             throw ValidationException::withMessages(['asset_uuid' => 'Выберите ровно один объект: оборудование или установку ПО/сервис.']);
         }
-        abort_if($forPlan && $asset?->status === 'written_off', 422, 'Нельзя назначить новый регламент списанному предмету.');
+        abort_if($asset?->status === 'written_off', 422, 'Нельзя создавать работы, заявки и регламенты для списанного предмета.');
 
         return ['asset_id' => $asset?->id, 'software_installation_id' => $software?->id];
     }

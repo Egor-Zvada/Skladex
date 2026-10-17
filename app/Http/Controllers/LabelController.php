@@ -21,7 +21,7 @@ class LabelController extends Controller
         $geometry = $service->geometry($profile ? $profile->only(LabelService::GEOMETRY_FIELDS) : $service->defaults());
         $model = $targetType === 'asset' ? Asset::class : Location::class;
         $query = $data['q'] ?? '';
-        $results = $model::whereNull('archived_at')->when($query !== '', function ($builder) use ($query) {
+        $results = $model::whereNull('archived_at')->when($targetType === 'asset', fn ($q) => $q->where('status', '!=', 'written_off'))->when($query !== '', function ($builder) use ($query) {
             $builder->where(function ($builder) use ($query) {
                 $builder->where('name', 'like', '%'.$query.'%')->orWhere('code', 'like', '%'.$query.'%');
             });

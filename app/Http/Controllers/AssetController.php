@@ -21,9 +21,14 @@ class AssetController extends Controller
     public function index(Request $r)
     {
         $buildings = Building::whereNull('archived_at')->orderBy('name')->get();
-        $filters = $r->validate(['building_id' => ['nullable', Rule::in(array_merge(['unassigned'], $buildings->pluck('id')->all()))]]);
+        $filters = $r->validate([
+            'building_id' => ['nullable', Rule::in(array_merge(['unassigned'], $buildings->pluck('id')->all()))],
+            'q' => 'nullable|string|max:150', 'category' => 'nullable|integer|exists:categories,id',
+            'location' => ['nullable', 'integer', Rule::exists('locations', 'id')->whereNull('archived_at')],
+            'page' => 'nullable|integer|min:1',
+        ]);
         $buildingFilter = $filters['building_id'] ?? null;
-        $q = Asset::with('category', 'location.building')->whereNull('archived_at')->when($r->filled('q'), fn ($q) => $q->where(function ($q) use ($r) {
+        $q = Asset::with('category', 'location.building')->whereNull('archived_at')->where('status', '!=', 'written_off')->when($r->filled('q'), fn ($q) => $q->where(function ($q) use ($r) {
             $v = '%'.mb_substr($r->string('q'), 0, 150).'%';
             $q->where('name', 'like', $v)->orWhere('code', 'like', $v)->orWhere('inventory_no', 'like', $v)->orWhere('serial_no', 'like', $v);
         }))
@@ -49,6 +54,7 @@ class AssetController extends Controller
     {
         Access::check($r->user(), 'write');
         abort_if($asset->archived_at, 404);
+        abort_if($asset->status === 'written_off', 409, 'Сначала восстановите предмет из раздела «Списание».');
 
         return $this->form($asset);
     }
@@ -80,8 +86,11 @@ class AssetController extends Controller
         if ($r->is('api/*')) {
             return response()->json(['data' => $this->detail($asset)]);
         }
+        if ($asset->status === 'written_off') {
+            return redirect()->route('writeoffs.show', $asset);
+        }
 
-        return view('assets.show', ['asset' => $asset, 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get(), 'available' => Asset::whereNull('archived_at')->where('id', '!=', $asset->id)->orderBy('name')->get(), 'racks' => Asset::whereHas('category', fn ($q) => $q->where('kind', 'rack'))->whereNull('archived_at')->get(), 'licenses' => LicenseInstance::with('product')->whereNull('archived_at')->get(), 'products' => SoftwareProduct::whereNull('archived_at')->orderBy('name')->get(), 'contents' => $this->contents($asset)]);
+        return view('assets.show', ['asset' => $asset, 'locations' => Location::with('building')->whereNull('archived_at')->orderBy('name')->get(), 'available' => Asset::whereNull('archived_at')->where('status', '!=', 'written_off')->where('id', '!=', $asset->id)->orderBy('name')->get(), 'racks' => Asset::whereHas('category', fn ($q) => $q->where('kind', 'rack'))->whereNull('archived_at')->where('status', '!=', 'written_off')->get(), 'licenses' => LicenseInstance::with('product')->whereNull('archived_at')->get(), 'products' => SoftwareProduct::whereNull('archived_at')->orderBy('name')->get(), 'contents' => $this->contents($asset)]);
     }
 
     public function move(Request $r, Asset $asset, AssetService $service)
@@ -94,7 +103,7 @@ class AssetController extends Controller
 
     public function component(Request $r, Asset $asset, AssetService $service)
     {
-        $d = $r->validate(['expected_version' => 'required|integer|min:1', 'component_type' => 'required|string|max:100', 'description' => 'required_without:child_asset_id|nullable|string|max:500', 'quantity' => 'required|integer|min:1|max:1000', 'serial_no' => 'nullable|string|max:255', 'inventory_no' => 'nullable|string|max:255', 'child_asset_id' => 'nullable|exists:assets,id', 'expected_child_version' => 'required_with:child_asset_id|nullable|integer|min:1']);
+        $d = $r->validate(['expected_version' => 'required|integer|min:1', 'component_type' => 'required|string|max:100', 'description' => 'required_without:child_asset_id|nullable|string|max:500', 'quantity' => 'required|integer|min:1|max:1000', 'serial_no' => 'nullable|string|max:160', 'inventory_no' => 'nullable|string|max:120', 'child_asset_id' => 'nullable|exists:assets,id', 'expected_child_version' => 'required_with:child_asset_id|nullable|integer|min:1']);
         abort_if((! empty($d['serial_no']) || ! empty($d['inventory_no']) || ! empty($d['child_asset_id'])) && (int) $d['quantity'] !== 1, 422, 'Для индивидуального предмета количество должно равняться 1.');
         $row = $service->component($r->user(), $asset, $d);
 
@@ -135,7 +144,7 @@ class AssetController extends Controller
 
     private function validateAsset(Request $r, bool $update): array
     {
-        return $r->validate(['name' => 'required|string|max:255', 'category_id' => 'required|exists:categories,id', 'location_id' => $update ? ['prohibited'] : ['nullable', Rule::exists('locations', 'id')->whereNull('archived_at')], 'responsible_name' => 'nullable|string|max:255', 'inventory_no' => 'nullable|string|max:255', 'serial_no' => 'nullable|string|max:255', 'manufacturer' => 'nullable|string|max:255', 'model' => 'nullable|string|max:255', 'status' => $update ? 'prohibited' : 'nullable|in:stock,in_use,repair,written_off', 'condition' => 'required|in:working,limited,faulty,unknown', 'maintenance_policy' => 'required|in:unspecified,none,reactive_only,scheduled', 'private_notes' => 'nullable|string|max:10000', 'purchased_on' => 'nullable|date', 'warranty_until' => 'nullable|date', 'expected_version' => $update ? 'required|integer|min:1' : 'nullable|integer']);
+        return $r->validate(['name' => 'required|string|max:255', 'category_id' => 'required|exists:categories,id', 'location_id' => $update ? ['prohibited'] : ['nullable', Rule::exists('locations', 'id')->whereNull('archived_at')], 'responsible_name' => 'nullable|string|max:255', 'inventory_no' => 'nullable|string|max:120', 'serial_no' => 'nullable|string|max:160', 'manufacturer' => 'nullable|string|max:160', 'model' => 'nullable|string|max:200', 'status' => $update ? 'prohibited' : 'nullable|in:stock,in_use,repair,written_off', 'condition' => 'required|in:working,limited,faulty,unknown', 'maintenance_policy' => 'required|in:unspecified,none,reactive_only,scheduled', 'private_notes' => 'nullable|string|max:10000', 'purchased_on' => 'nullable|date', 'warranty_until' => 'nullable|date', 'expected_version' => $update ? 'required|integer|min:1' : 'nullable|integer']);
     }
 
     private function contents(Asset $asset): Collection

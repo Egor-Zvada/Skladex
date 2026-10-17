@@ -72,7 +72,7 @@ Route::middleware(['auth', 'permission:read', 'idempotent'])->group(function () 
     Route::get('/api-reference/openapi.json', [ApiReferenceController::class, 'schema'])->name('api.schema');
     Route::post('/documents', [DocumentController::class, 'store'])->name('documents.store');
     Route::get('/documents/{document}', [DocumentController::class, 'download'])->name('documents.download');
-    foreach (['catalog', 'operations', 'labels'] as $file) {
+    foreach (['catalog', 'operations', 'labels', 'document-records', 'writeoffs'] as $file) {
         if (is_file(__DIR__."/$file.php")) {
             require __DIR__."/$file.php";
         }

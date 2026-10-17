@@ -188,7 +188,7 @@ class LabelService
             $this->invalid('target_ids', 'Один объект выбран несколько раз.');
         }
         $model = $type === 'asset' ? Asset::class : Location::class;
-        $models = $model::whereIn('uuid', $ids)->whereNull('archived_at')->get()->keyBy(fn ($item) => strtolower($item->uuid));
+        $models = $model::whereIn('uuid', $ids)->whereNull('archived_at')->when($type === 'asset', fn ($q) => $q->where('status', '!=', 'written_off'))->get()->keyBy(fn ($item) => strtolower($item->uuid));
         if ($models->count() !== count($ids)) {
             $this->invalid('target_ids', 'Часть объектов не найдена или находится в архиве. Обновите выборку.');
         }

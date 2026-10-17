@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 class Asset extends Model
 {
@@ -21,6 +22,15 @@ class Asset extends Model
 
     // Public responses still require an explicit allowlist resource.
     protected $hidden = ['private_notes', 'specifications'];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Asset $asset): void {
+            $reserved = DB::table('retired_asset_codes')->where('code', $asset->code)->orWhere('asset_uuid', $asset->uuid)
+                ->when($asset->id !== null, fn ($q) => $q->orWhere('former_asset_id', $asset->id))->exists();
+            abort_if($reserved, 409, 'Код или идентификатор удалённого предмета навсегда зарезервирован для его истории.');
+        });
+    }
 
     protected function casts(): array
     {

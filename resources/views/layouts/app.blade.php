@@ -28,6 +28,8 @@
             ['locations.index', 'Кабинеты', 'locations', 'locations.*'],
             ['inventory.index', 'Инвентаризация', 'inventory', 'inventory.*'],
             ['maintenance.index', 'Обслуживание', 'maintenance', 'maintenance.*'],
+            ['document-records.index', 'Документы', 'licenses', 'document-records.*'],
+            ['writeoffs.index', 'Списание', 'inventory', 'writeoffs.*'],
             ['software.index', 'ПО и сервисы', 'software', 'software.*'],
             ['licenses.index', 'Лицензии', 'licenses', 'licenses.*'],
             ['labels.index', 'Печать', 'labels', 'labels.*'],

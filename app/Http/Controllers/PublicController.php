@@ -38,7 +38,7 @@ class PublicController extends Controller
     public function location(Request $r, Location $location)
     {
         abort_unless($location->is_public && ! $location->archived_at, 404);
-        $assets = $location->assets()->whereNull('archived_at')->with('category', 'location.building')->orderBy('name')->paginate(50);
+        $assets = $location->assets()->whereNull('archived_at')->where('status', '!=', 'written_off')->with('category', 'location.building')->orderBy('name')->paginate(50);
         $data = ['id' => $location->uuid, 'code' => $location->code, 'name' => $location->name, 'building' => $this->buildingData($location)];
         if ($r->expectsJson()) {
             return response()->json(['data' => $data, 'assets' => $assets->getCollection()->map(fn ($a) => $this->assetData($a)), 'pagination' => ['page' => $assets->currentPage(), 'last_page' => $assets->lastPage(), 'total' => $assets->total()]]);
@@ -90,7 +90,7 @@ class PublicController extends Controller
 
     private function assertPublic(Asset $a): void
     {
-        abort_if($a->archived_at || ($a->location && (! $a->location->is_public || $a->location->archived_at)), 404);
+        abort_if($a->archived_at || $a->status === 'written_off' || ($a->location && (! $a->location->is_public || $a->location->archived_at)), 404);
     }
 
     private function assetData(Asset $a): array

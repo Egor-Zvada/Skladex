@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Asset;
 use App\Models\Location;
 use App\Models\QrAlias;
+use Illuminate\Support\Facades\DB;
 
 class QrResolver
 {
@@ -32,7 +33,7 @@ class QrResolver
             $value = ($url['path'] ?? '/').(isset($url['query']) ? '?'.$url['query'] : '');
         }
         if (preg_match('~^/p/(a|r)/([0-9a-f-]{36})/?$~i', $value, $m)) {
-            return ($m[1] === 'a' ? Asset::query() : Location::query())->where('uuid', $m[2])->whereNull('archived_at')->first();
+            return ($m[1] === 'a' ? Asset::query() : Location::query())->where('uuid', $m[2])->whereNull('archived_at')->when($m[1] === 'a', fn ($q) => $q->where('status', '!=', 'written_off'))->first();
         }
         if (preg_match('~^/eq/([^/?#]+)/?$~u', $value, $m)) {
             return $this->legacyAssetKey(rawurldecode($m[1]));
@@ -68,9 +69,15 @@ class QrResolver
         if (preg_match('/^EQ-\d+$/iD', $code)) {
             $code = strtoupper($code);
         }
-        $alias = $this->alias('asset-code:'.$code);
+        // A recorded old label remains reserved even after its target is purged.
+        // Never fall through to a different card which happens to use that text.
+        if (QrAlias::where('alias', 'asset-code:'.$code)->exists()) {
+            $alias = $this->alias('asset-code:'.$code);
 
-        return $alias instanceof Asset ? $alias : Asset::where('code', $code)->whereNull('archived_at')->first();
+            return $alias instanceof Asset ? $alias : null;
+        }
+
+        return Asset::where('code', $code)->whereNull('archived_at')->where('status', '!=', 'written_off')->first();
     }
 
     private function legacyAssetKey(string $value): ?Asset
@@ -93,9 +100,12 @@ class QrResolver
         if (! $row) {
             return null;
         }
+        if ($row->target_type === 'asset' && DB::table('retired_asset_codes')->where('former_asset_id', $row->target_id)->exists()) {
+            return null;
+        }
 
         return match ($row->target_type) {
-            'asset' => Asset::whereKey($row->target_id)->whereNull('archived_at')->first(),
+            'asset' => Asset::whereKey($row->target_id)->whereNull('archived_at')->where('status', '!=', 'written_off')->first(),
             'location' => Location::whereKey($row->target_id)->whereNull('archived_at')->first(),
             default => null,
         };

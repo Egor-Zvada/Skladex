@@ -1,11 +1,14 @@
 <?php
 
+use App\Http\Controllers\MaintenancePresetController;
 use App\Http\Controllers\OperationsApiController as C;
 use Illuminate\Support\Facades\Route;
 
 // Root mounts this under /api/v1 with auth, permission:read and idempotency.
 // Names are already prefixed with api.; do not add a second name prefix.
 Route::prefix('maintenance')->name('api.maintenance.')->group(function () {
+    Route::get('/presets', [MaintenancePresetController::class, 'index'])->name('presets.index');
+    Route::post('/presets/apply', [MaintenancePresetController::class, 'apply'])->name('presets.apply');
     Route::get('/work', [C::class, 'workIndex'])->name('work.index');
     Route::post('/work', [C::class, 'workStore'])->name('work.store');
     Route::post('/completed-work', [C::class, 'completedStore'])->name('work.completed-store');

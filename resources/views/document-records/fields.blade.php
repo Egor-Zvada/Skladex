@@ -1,0 +1,6 @@
+@php
+    $fieldValue = function ($key, $fallback = null) { $value = old($key, $fallback); return is_string($value) ? $value : ''; };
+@endphp
+<label class="field">Заголовок<input name="title" value="{{ $fieldValue('title', $record?->title ?? 'Акт приёма-передачи оборудования') }}" maxlength="255" required data-document-title></label>
+<div class="form-grid"><label class="field">Организация<input name="organization" value="{{ $fieldValue('organization', $record?->organization) }}" maxlength="255" placeholder="Необязательно"></label><label class="field">Составитель / передающая сторона<input name="author_name" value="{{ $fieldValue('author_name', $record?->author_name) }}" maxlength="255" placeholder="Необязательно"></label><label class="field">Получатель / принимающая сторона<input name="recipient_name" value="{{ $fieldValue('recipient_name', $record?->recipient_name) }}" maxlength="255" placeholder="Необязательно"></label></div>
+<label class="field">Текст документа<textarea name="body" rows="9" maxlength="12000" required placeholder="Опишите основание передачи, выявленные неисправности, результаты осмотра или необходимые действия.">{{ $fieldValue('body', $record?->body) }}</textarea><small class="muted">Обычный текст. Перечень оборудования и реквизиты добавятся автоматически.</small></label>

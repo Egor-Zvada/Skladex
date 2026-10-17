@@ -18,7 +18,7 @@ foreach ($path in @('/assets','/assets/','/assets/create')) {
     $page = Check-Page $path 200
     if ($page.BaseResponse.RequestMessage.RequestUri.AbsolutePath -ne '/login') { throw "$path did not require login" }
 }
-foreach ($path in @('/static/skladex.css','/static/skladex.js','/static/operations.js','/static/qr-scanner.min.js','/static/link.png','/static/fonts/InterVariable.woff2','/static/label-editor.js','/static/label-editor.css')) { $null = Check-Page $path 200 }
+foreach ($path in @('/static/skladex.css','/static/skladex.js','/static/operations.js','/static/qr-scanner.min.js','/static/link.png','/static/fonts/InterVariable.woff2','/static/label-editor.js','/static/label-editor.css','/static/document-records.css','/static/document-records.js','/static/maintenance-presets.js')) { $null = Check-Page $path 200 }
 foreach ($path in @('/assets/skladex.css','/assets/qr-scanner.min.js','/assets/fonts/InterVariable.woff2','/assets/fonts/IBMPlexMono-Light.woff2','/assets/fonts/IBMPlexMono-Regular.woff2')) {
     $page = Check-Page $path 200
     if ($page.BaseResponse.RequestMessage.RequestUri.AbsolutePath -ne $path.Replace('/assets/','/static/')) { throw 'Legacy static compatibility failed.' }
@@ -34,7 +34,7 @@ if ($Credential) {
     $dashboard = Invoke-WebRequest -Uri ($base + '/login') -Method Post -WebSession $session -Body @{_token=$csrf;email=$Credential.UserName;password=$Credential.GetNetworkCredential().Password}
     if ($dashboard.BaseResponse.RequestMessage.RequestUri.AbsolutePath -ne '/app') { throw 'Authentication failed.' }
     try {
-        foreach ($path in @('/app','/assets','/assets/','/assets/create','/locations','/locations?building_id=unassigned','/buildings','/assets?building_id=unassigned','/kits','/inventory','/maintenance','/software','/licenses','/labels','/history','/history?source=legacy','/settings','/api-reference','/api-reference/openapi.json')) {
+        foreach ($path in @('/app','/assets','/assets?page=2','/assets/','/assets/create','/document-records','/document-records/create','/writeoffs','/maintenance/presets','/maintenance/plans','/locations','/locations?building_id=unassigned','/buildings','/assets?building_id=unassigned','/kits','/inventory','/maintenance','/software','/licenses','/labels','/history','/history?source=legacy','/settings','/api-reference','/api-reference/openapi.json')) {
             $page = Check-Page $path 200 $session
             if ($page.BaseResponse.RequestMessage.RequestUri.AbsolutePath -eq '/login') { throw "$path lost authentication" }
         }

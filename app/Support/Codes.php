@@ -19,10 +19,13 @@ class Codes
     {
         return DB::transaction(function () use ($prefix) {
             DB::table('code_counters')->insertOrIgnore(['prefix' => $prefix, 'next_value' => 1]);
-            $counter = DB::table('code_counters')->where('prefix', $prefix)->lockForUpdate()->first();
-            DB::table('code_counters')->where('prefix', $prefix)->increment('next_value');
+            do {
+                $counter = DB::table('code_counters')->where('prefix', $prefix)->lockForUpdate()->first();
+                DB::table('code_counters')->where('prefix', $prefix)->increment('next_value');
+                $code = $prefix.'-'.str_pad((string) $counter->next_value, 6, '0', STR_PAD_LEFT);
+            } while ($prefix === 'SKX-A' && (DB::table('retired_asset_codes')->where('code', $code)->exists() || DB::table('assets')->where('code', $code)->exists()));
 
-            return $prefix.'-'.str_pad((string) $counter->next_value, 6, '0', STR_PAD_LEFT);
+            return $code;
         });
     }
 }

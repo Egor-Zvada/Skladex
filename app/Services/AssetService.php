@@ -26,7 +26,9 @@ class AssetService
             if ($asset) {
                 $asset = Asset::lockForUpdate()->findOrFail($asset->id);
                 Version::check($asset, $data['expected_version'] ?? null);
+                abort_if($asset->status === 'written_off', 409, 'Сначала верните предмет из списания.');
             } else {
+                abort_if(($data['status'] ?? null) === 'written_off', 422, 'Создайте карточку, затем выполните списание с указанием причины.');
                 $asset = new Asset(['code' => Codes::next('SKX-A')]);
                 if (! empty($data['location_id'])) {
                     // Recheck inside the graph transaction: a room may have
@@ -60,12 +62,18 @@ class AssetService
     public function move(User $actor, Asset $asset, array $data): Asset
     {
         Access::check($actor, 'write');
+        if (($data['status'] ?? null) === 'written_off') {
+            abort_if(array_key_exists('location_id', $data) && $data['location_id'] != $asset->location_id, 422, 'Сначала переместите предмет, затем выполните списание.');
+
+            return app(WriteoffService::class)->writeOff($actor, $asset, $data);
+        }
 
         return DB::transaction(function () use ($actor, $asset, $data) {
             Codes::lockPhysicalGraph();
             $asset = Asset::lockForUpdate()->findOrFail($asset->id);
             Version::check($asset, $data['expected_version'] ?? null);
             abort_if($asset->archived_at, 409, 'Архивный предмет нельзя переместить.');
+            abort_if($asset->status === 'written_off', 409, 'Для возврата списанного оборудования используйте раздел «Списание».');
             abort_if(PhysicalPlacement::where('asset_id', $asset->id)->lockForUpdate()->get()->isNotEmpty(), 422, 'Сначала снимите предмет с его физического родителя.');
             $ids = [$asset->id];
             $frontier = [$asset->id];
@@ -115,6 +123,7 @@ class AssetService
             $parent = Asset::lockForUpdate()->findOrFail($parent->id);
             Version::check($parent, $data['expected_version'] ?? null);
             abort_if($parent->archived_at, 409, 'Архивный компьютер недоступен для изменения.');
+            abort_if($parent->status === 'written_off', 409, 'Списанный компьютер недоступен для изменения.');
             abort_unless($parent->category->kind === 'computer', 422, 'Состав доступен у компьютерного оборудования.');
             $child = null;
             if (! empty($data['child_asset_id'])) {
@@ -140,6 +149,7 @@ class AssetService
             $parent = Asset::lockForUpdate()->findOrFail($parent->id);
             Version::check($parent, $expected);
             abort_if($parent->archived_at, 409);
+            abort_if($parent->status === 'written_off', 409, 'Списанный компьютер недоступен для изменения.');
             $row = AssetComponent::lockForUpdate()->findOrFail($row->id);
             abort_unless($row->parent_asset_id === $parent->id && ! $row->removed_at, 409);
             if ($row->child_asset_id) {
@@ -196,6 +206,7 @@ class AssetService
             Codes::lockPhysicalGraph();
             $asset = Asset::lockForUpdate()->findOrFail($asset->id);
             Version::check($asset, $expected);
+            abort_if($asset->status === 'written_off', 409, 'Списанными предметами управляйте в разделе «Списание».');
             abort_if(PhysicalPlacement::where('asset_id', $asset->id)->orWhere('parent_asset_id', $asset->id)->lockForUpdate()->get()->isNotEmpty(), 422, 'Сначала снимите физические связи и установленное оборудование.');
             $asset->archived_at = now();
             $asset->version++;
@@ -218,7 +229,7 @@ class AssetService
     private function assertPlacement(Asset $child, Asset $parent): void
     {
         abort_if($child->location_id !== $parent->location_id && PhysicalPlacement::where('parent_asset_id', $child->id)->lockForUpdate()->get()->isNotEmpty(), 422, 'Сначала переместите предмет вместе с его содержимым в кабинет родителя.');
-        abort_if($child->id === $parent->id || $child->archived_at || $parent->archived_at, 422, 'Недопустимое размещение.');
+        abort_if($child->id === $parent->id || $child->archived_at || $parent->archived_at || $child->status === 'written_off' || $parent->status === 'written_off', 422, 'Недопустимое размещение.');
         abort_if(PhysicalPlacement::where('asset_id', $child->id)->lockForUpdate()->get()->isNotEmpty(), 409, 'Предмет уже установлен. Сначала снимите его.');
         $ancestor = $parent->id;
         $visited = [];

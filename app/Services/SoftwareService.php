@@ -9,6 +9,7 @@ use App\Models\SoftwareRelease;
 use App\Models\User;
 use App\Support\Access;
 use App\Support\Audit;
+use App\Support\Codes;
 use App\Support\Version;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -94,6 +95,7 @@ class SoftwareService
         }
 
         return DB::transaction(function () use ($actor, $product, $installation, $data) {
+            Codes::lockPhysicalGraph();
             $lockedProduct = SoftwareProduct::lockForUpdate()->findOrFail($product->id);
             $this->active($lockedProduct);
             if ($installation) {
