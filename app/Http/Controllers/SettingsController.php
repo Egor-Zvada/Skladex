@@ -166,7 +166,7 @@ class SettingsController extends Controller
         }
         $plain = DB::transaction(function () use ($request, $data) {
             $actor = $this->lockedActor($request->user(), 'manage-api');
-            $issued = $actor->createToken($data['name'], $data['abilities'], now()->addDays($data['expires_in_days']));
+            $issued = $actor->createToken($data['name'], $data['abilities'], now()->addDays((int) $data['expires_in_days']));
             Audit::record('settings.api-token.created', $issued->accessToken, ['name' => $data['name'], 'abilities' => $data['abilities'], 'expires_at' => $issued->accessToken->expires_at?->toIso8601String()]);
 
             return $issued->plainTextToken;

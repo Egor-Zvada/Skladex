@@ -13,6 +13,7 @@ use App\Services\QrResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class SettingsTest extends TestCase
@@ -216,6 +217,36 @@ class SettingsTest extends TestCase
         $audit = AuditEvent::where('event', 'settings.api-token.created')->firstOrFail();
         $this->assertStringNotContainsString($plain, json_encode($audit->data));
         $this->assertStringNotContainsString($token->token, json_encode($audit->data));
+    }
+
+    public function test_token_html_form_accepts_string_expiry_and_replay_neither_reissues_nor_reveals_secret(): void
+    {
+        $this->freezeTime();
+        // A browser submits number inputs as strings, unlike the integer PHP fixtures above.
+        $input = ['name' => 'Browser report reader', 'abilities' => ['read'], 'expires_in_days' => '30', 'idempotency_key' => (string) Str::uuid()];
+        $this->actingAs($this->admin)->post(route('settings.tokens.store'), $input)->assertRedirect(route('settings.index'));
+        $plain = session('created_api_token');
+        $this->assertIsString($plain);
+        $token = $this->admin->tokens()->sole();
+        $this->assertSame(['read'], $token->abilities);
+        $this->assertSame(now()->addDays(30)->toDateTimeString(), $token->expires_at->toDateTimeString());
+        $this->assertSame(hash('sha256', explode('|', $plain, 2)[1]), $token->token);
+        $command = DB::table('idempotency_keys')->where('user_id', $this->admin->id)->where('key', $input['idempotency_key'])->sole();
+        $this->assertSame('complete', $command->status);
+        $this->assertStringNotContainsString($plain, $command->response_body);
+        $this->assertStringNotContainsString($token->token, $command->response_body);
+
+        $this->get(route('settings.index'))->assertOk()->assertSee($plain);
+        $this->assertNull(session('created_api_token'));
+        $this->post(route('settings.tokens.store'), $input)->assertRedirect(route('settings.index'))->assertSessionMissing('created_api_token');
+        $this->get(route('settings.index'))->assertOk()->assertDontSee($plain);
+        $this->assertSame(1, $this->admin->tokens()->count());
+        $this->assertSame(1, AuditEvent::where('event', 'settings.api-token.created')->count());
+
+        $this->post(route('settings.tokens.revoke', $token->id), ['idempotency_key' => (string) Str::uuid()])->assertRedirect(route('settings.index'));
+        $this->assertSame(0, $this->admin->tokens()->count());
+        $this->post(route('settings.tokens.store'), $input)->assertRedirect(route('settings.index'))->assertSessionMissing('created_api_token');
+        $this->assertSame(0, $this->admin->tokens()->count());
     }
 
     public function test_token_does_not_allow_wildcard_unknown_scopes_or_long_expiry(): void
