@@ -12,25 +12,35 @@ class DirectoryGateway
 {
     public function enabled(): bool
     {
-        return (bool) config('directory.enabled');
+        return app(DirectorySettingsService::class)->enabled();
+    }
+
+    public function revision(): string
+    {
+        return app(DirectorySettingsService::class)->revision();
     }
 
     public function settings(): array
     {
-        $path = config('directory.config_file');
-        if (! is_string($path) || ! is_readable($path)) {
-            throw new DirectoryUnavailable('Настройки доменного входа недоступны.');
+        $settings = app(DirectorySettingsService::class)->current();
+        if (! ($settings['enabled'] ?? false)) {
+            throw new DirectoryUnavailable('Доменный вход временно отключён.');
         }
-        try {
-            $settings = json_decode(file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            throw new DirectoryUnavailable('Настройки доменного входа недоступны.');
-        }
-        if (! is_array($settings) || ! ($settings['enabled'] ?? false) || ! is_array($settings['hosts'] ?? null) || ! $settings['hosts']
+        $this->validateConfiguration($settings);
+
+        return $settings;
+    }
+
+    private function validateConfiguration(#[\SensitiveParameter] array $settings): void
+    {
+        if (! is_array($settings['hosts'] ?? null) || ! $settings['hosts'] || count($settings['hosts']) > 3
             || ! is_array($settings['groups'] ?? null) || ! $settings['groups']
+            || count($settings['groups']) > 20
             || ! in_array($settings['mode'] ?? '', ['ldaps', 'starttls'], true)
             || ! is_string($settings['base_dn'] ?? null) || $settings['base_dn'] === ''
+            || str_contains($settings['base_dn'], "\0")
             || ! is_string($settings['bind_dn'] ?? null) || $settings['bind_dn'] === ''
+            || str_contains($settings['bind_dn'], "\0")
             || ! is_string($settings['bind_password'] ?? null) || $settings['bind_password'] === ''
             || str_contains($settings['bind_password'], "\0")
             || ! is_string($settings['ca_file'] ?? null) || ! is_file($settings['ca_file']) || ! is_readable($settings['ca_file'])
@@ -44,13 +54,11 @@ class DirectoryGateway
         }
         foreach ($settings['groups'] as $group) {
             if (! is_array($group) || ! is_string($group['dn'] ?? null) || $group['dn'] === ''
-                || ! in_array($group['role'] ?? '', ['viewer', 'operator', 'admin'], true)
-                || ! is_int($group['primary_group_id'] ?? null) || $group['primary_group_id'] < 1) {
+                || str_contains($group['dn'], "\0")
+                || ! in_array($group['role'] ?? '', ['viewer', 'operator', 'admin'], true)) {
                 throw new DirectoryUnavailable('Некорректное сопоставление доменных групп.');
             }
         }
-
-        return $settings;
     }
 
     public function authenticate(string $identifier, #[\SensitiveParameter] string $password): ?array
@@ -105,18 +113,32 @@ class DirectoryGateway
         }
     }
 
-    /** Read-only diagnostics: each controller must pass TLS, service bind and base-DN read. */
+    /** Read-only diagnostics work for a saved disabled configuration as well. */
     public function checkConnection(): array
     {
-        $settings = $this->settings();
+        return $this->probeConfiguration(app(DirectorySettingsService::class)->current())['controllers'];
+    }
+
+    /**
+     * Only public diagnostics leave this method. Group RID values come from AD,
+     * never from editable form fields or the legacy JSON.
+     */
+    public function probeConfiguration(#[\SensitiveParameter] array $candidate): array
+    {
+        $this->validateConfiguration($candidate);
         $results = [];
-        foreach (array_slice($settings['hosts'], 0, 3) as $host) {
+        $resolved = [];
+        foreach ($candidate['hosts'] as $host) {
             $connection = null;
             $ok = false;
             try {
-                $connection = $this->connect(array_replace($settings, ['hosts' => [$host]]));
-                $search = @ldap_read($connection, $settings['base_dn'], '(objectClass=*)', ['objectClass'], 0, 1, 5);
-                $ok = $search !== false && ldap_count_entries($connection, $search) === 1;
+                $connection = $this->connect(array_replace($candidate, ['hosts' => [$host]]));
+                $groups = $this->resolveGroups($connection, $candidate);
+                if ($resolved && $resolved !== $groups) {
+                    throw new DirectoryUnavailable('Контроллеры возвращают разные доменные группы.');
+                }
+                $resolved = $groups;
+                $ok = true;
             } catch (\Throwable $e) {
                 // Never serialize connection arguments, credentials or directory entries.
             } finally {
@@ -127,7 +149,7 @@ class DirectoryGateway
             $results[] = ['host' => $host, 'ok' => $ok];
         }
 
-        return $results;
+        return ['controllers' => $results, 'groups' => $resolved, 'ok' => (bool) $resolved && in_array(true, array_column($results, 'ok'), true)];
     }
 
     private function connect(#[\SensitiveParameter] array $settings): Connection
@@ -168,21 +190,21 @@ class DirectoryGateway
         throw new DirectoryUnavailable('Контроллеры домена временно недоступны. Локальный вход администратора сохранён.');
     }
 
-    private function membership(array $group): string
+    private function nestedMembership(array $group): string
     {
-        return '(|(memberOf:1.2.840.113556.1.4.1941:='.ldap_escape($group['dn'], '', LDAP_ESCAPE_FILTER).')(primaryGroupID='.(int) $group['primary_group_id'].'))';
+        return '(memberOf:1.2.840.113556.1.4.1941:='.ldap_escape($group['dn'], '', LDAP_ESCAPE_FILTER).')';
     }
 
     private function find(Connection $ldap, array $settings, string $identityFilter): ?array
     {
-        $allowed = '(|'.implode('', array_map(fn ($group) => $this->membership($group), $settings['groups'])).')';
-        $filter = '(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))'.$identityFilter.$allowed.')';
-        $search = @ldap_search($ldap, $settings['base_dn'], $filter, ['objectGUID', 'displayName', 'cn', 'mail', 'sAMAccountName', 'userAccountControl', 'accountExpires'], 0, 2, 5);
+        $groups = $this->resolveGroups($ldap, $settings);
+        $filter = '(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))'.$identityFilter.')';
+        $search = @ldap_search($ldap, $settings['base_dn'], $filter, ['objectGUID', 'objectSid', 'primaryGroupID', 'displayName', 'cn', 'mail', 'sAMAccountName', 'userAccountControl', 'accountExpires'], 0, 2, 5);
         if ($search === false) {
             throw new DirectoryUnavailable('Не удалось проверить доменную учётную запись.');
         }
         $entries = ldap_get_entries($ldap, $search);
-        if ($entries['count'] !== 1) {
+        if ($entries === false || ($entries['count'] ?? 0) !== 1) {
             return null;
         }
         $entry = $entries[0];
@@ -192,12 +214,13 @@ class DirectoryGateway
         }
         $role = null;
         $priority = ['viewer' => 1, 'operator' => 2, 'admin' => 3];
-        foreach ($settings['groups'] as $group) {
-            $match = @ldap_read($ldap, $entry['dn'], $this->membership($group), ['objectGUID'], 0, 1, 5);
+        foreach ($groups as $group) {
+            $match = @ldap_read($ldap, $entry['dn'], $this->nestedMembership($group), ['objectGUID'], 0, 1, 5);
             if ($match === false) {
                 throw new DirectoryUnavailable('Не удалось проверить доменную группу.');
             }
-            if (ldap_count_entries($ldap, $match) === 1 && ($role === null || $priority[$group['role']] > $priority[$role])) {
+            $member = ldap_count_entries($ldap, $match) === 1 || $this->primaryMembership($entry, $group);
+            if ($member && ($role === null || $priority[$group['role']] > $priority[$role])) {
                 $role = $group['role'];
             }
         }
@@ -210,6 +233,99 @@ class DirectoryGateway
             'name' => $entry['displayname'][0] ?? $entry['cn'][0] ?? $entry['samaccountname'][0] ?? 'Пользователь домена',
             'email' => $entry['mail'][0] ?? null, 'login' => $entry['samaccountname'][0] ?? null,
         ];
+    }
+
+    private function resolveGroups(Connection $ldap, #[\SensitiveParameter] array $settings): array
+    {
+        $base = $this->readOne($ldap, $settings['base_dn'], '(objectClass=*)', ['objectSid']);
+        $domainSid = $this->sid($base['objectsid'][0] ?? null);
+        if (! $domainSid) {
+            // An OU may be used as the user-search base while the permitted groups
+            // live elsewhere in the same domain.
+            $root = $this->readOne($ldap, '', '(objectClass=*)', ['defaultNamingContext']);
+            $context = $root['defaultnamingcontext'][0] ?? null;
+            if (! is_string($context) || ! $this->dnWithin($settings['base_dn'], $context)) {
+                throw new DirectoryUnavailable('База поиска должна принадлежать домену контроллера.');
+            }
+            $domain = $this->readOne($ldap, $context, '(objectClass=domainDNS)', ['objectSid']);
+            $domainSid = $this->sid($domain['objectsid'][0] ?? null);
+        }
+        if (! is_string($domainSid) || ! preg_match('/\AS-1-5-21-[0-9]+-[0-9]+-[0-9]+\z/', $domainSid)) {
+            throw new DirectoryUnavailable('Не удалось проверить домен базы поиска.');
+        }
+        $groups = [];
+        foreach ($settings['groups'] as $group) {
+            $entry = $this->readOne($ldap, $group['dn'], '(objectClass=group)', ['objectSid']);
+            $sid = $this->sid($entry['objectsid'][0] ?? null);
+            if (! $sid || ! preg_match('/\A'.preg_quote($domainSid, '/').'-([0-9]+)\z/', $sid, $match) || (int) $match[1] < 1) {
+                throw new DirectoryUnavailable('Разрешённая группа должна принадлежать тому же домену.');
+            }
+            $groups[] = ['dn' => $entry['dn'], 'role' => $group['role'], 'primary_group_id' => (int) $match[1], 'domain_sid' => $domainSid];
+        }
+
+        return $groups;
+    }
+
+    private function readOne(Connection $ldap, string $dn, string $filter, array $attributes): array
+    {
+        $search = @ldap_read($ldap, $dn, $filter, $attributes, 0, 1, 5);
+        if ($search === false) {
+            throw new DirectoryUnavailable('Не удалось проверить базу поиска или разрешённые группы.');
+        }
+        $entries = ldap_get_entries($ldap, $search);
+        if ($entries === false || ($entries['count'] ?? 0) !== 1) {
+            throw new DirectoryUnavailable('База поиска или разрешённая группа не найдена.');
+        }
+
+        return $entries[0];
+    }
+
+    private function dnWithin(string $dn, string $context): bool
+    {
+        $parts = ldap_explode_dn($dn, 0);
+        $parent = ldap_explode_dn($context, 0);
+        if ($parts === false || $parent === false || $parts['count'] < $parent['count']) {
+            return false;
+        }
+        for ($offset = 1; $offset <= $parent['count']; $offset++) {
+            if (strcasecmp($parts[$parts['count'] - $offset], $parent[$parent['count'] - $offset]) !== 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function primaryMembership(array $entry, array $group): bool
+    {
+        $sid = $this->sid($entry['objectsid'][0] ?? null);
+        if (! $sid || ! isset($group['domain_sid'], $group['primary_group_id'])) {
+            return false;
+        }
+        $rid = $entry['primarygroupid'][0] ?? null;
+
+        return (is_string($rid) || is_int($rid))
+            && preg_match('/\A[0-9]+\z/', (string) $rid)
+            && (int) $rid === (int) $group['primary_group_id']
+            && substr($sid, 0, strrpos($sid, '-')) === $group['domain_sid'];
+    }
+
+    private function sid(mixed $binary): ?string
+    {
+        if (! is_string($binary) || strlen($binary) < 12 || ord($binary[0]) !== 1) {
+            return null;
+        }
+        $count = ord($binary[1]);
+        if ($count < 1 || $count > 15 || strlen($binary) !== 8 + 4 * $count) {
+            return null;
+        }
+        $authority = 0;
+        for ($index = 2; $index < 8; $index++) {
+            $authority = ($authority << 8) | ord($binary[$index]);
+        }
+        $parts = array_values(unpack('V'.$count, substr($binary, 8)));
+
+        return 'S-1-'.$authority.'-'.implode('-', $parts);
     }
 
     private function accountExpired(mixed $filetime): bool

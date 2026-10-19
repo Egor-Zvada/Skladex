@@ -5,6 +5,7 @@ use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BuildingController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DirectorySettingsController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\KitController;
@@ -62,6 +63,9 @@ Route::middleware(['auth', 'permission:read', 'idempotent'])->group(function () 
     Route::post('/kits', [KitController::class, 'store'])->name('kits.store');
     Route::post('/kits/{kit}/members', [KitController::class, 'member'])->name('kits.members');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+    Route::get('/settings/directory', [DirectorySettingsController::class, 'edit'])->name('settings.directory.edit');
+    Route::post('/settings/directory', [DirectorySettingsController::class, 'update'])->middleware('throttle:6,1')->name('settings.directory.update');
+    Route::post('/settings/directory/check', [DirectorySettingsController::class, 'check'])->middleware('throttle:6,1')->name('settings.directory.check');
     Route::post('/settings/users', [SettingsController::class, 'user'])->name('settings.users.store');
     Route::post('/settings/users/{user}', [SettingsController::class, 'updateUser'])->name('settings.users.update');
     Route::post('/settings/password', [SettingsController::class, 'password'])->name('settings.password');

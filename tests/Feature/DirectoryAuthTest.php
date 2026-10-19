@@ -321,10 +321,68 @@ class DirectoryAuthTest extends TestCase
         $this->assertTrue($local->fresh()->is_active);
         $this->assertSame('admin', $local->fresh()->role);
     }
+
+    public function test_disabled_directory_denies_even_a_recently_checked_domain_session(): void
+    {
+        $user = $this->domainUser();
+        $user->directory_checked_at = now();
+        $user->save();
+        $this->gateway->isEnabled = false;
+        $this->actingAs($user)->get(route('dashboard'))->assertStatus(503);
+        $this->assertSame(0, $this->gateway->lookupCalls);
+        $this->assertTrue($user->fresh()->is_active);
+    }
+
+    public function test_login_cannot_apply_a_role_obtained_before_settings_changed(): void
+    {
+        $this->gateway->authIdentity = $this->identity(['role' => 'admin']);
+        $this->gateway->changeRevisionOnAuth = true;
+        $this->postJson(route('login.store'), ['email' => 'directory.user', 'password' => 'Synthetic-domain-password-203!'])->assertUnprocessable();
+        $this->assertGuest();
+        $this->assertSame(0, User::count());
+        $this->assertSame(0, AuditEvent::where('event', 'directory.authenticated')->count());
+    }
+
+    public function test_refresh_cannot_apply_a_role_obtained_before_settings_changed(): void
+    {
+        $user = $this->domainUser(['role' => 'operator']);
+        $this->gateway->lookupIdentity = $this->identity(['role' => 'admin']);
+        $this->gateway->changeRevisionOnLookup = true;
+        $this->actingAs($user)->get(route('dashboard'))->assertStatus(503);
+        $this->assertSame('operator', $user->fresh()->role);
+        $this->assertTrue($user->fresh()->is_active);
+        $this->assertSame(0, AuditEvent::where('event', 'directory.access.revoked')->count());
+    }
+
+    public function test_primary_membership_requires_the_same_domain_sid_not_only_the_same_rid(): void
+    {
+        $adapter = new DirectoryGateway;
+        $method = (new \ReflectionClass(DirectoryGateway::class))->getMethod('primaryMembership');
+        $sid = static fn (array $parts): string => chr(1).chr(count($parts))."\0\0\0\0\0\5".pack('V*', ...$parts);
+        $group = ['primary_group_id' => 512, 'domain_sid' => 'S-1-5-21-111-222-333'];
+        $entry = ['primarygroupid' => ['512'], 'objectsid' => [$sid([21, 111, 222, 333, 1234])]];
+        $this->assertTrue($method->invoke($adapter, $entry, $group));
+        $entry['objectsid'] = [$sid([21, 444, 555, 666, 1234])];
+        $this->assertFalse($method->invoke($adapter, $entry, $group));
+        $entry['objectsid'] = ["\1\5short"];
+        $this->assertFalse($method->invoke($adapter, $entry, $group));
+        $entry['objectsid'] = [$sid([21, 111, 222, 333, 1234])];
+        $entry['primarygroupid'] = ['513'];
+        $this->assertFalse($method->invoke($adapter, $entry, $group));
+        $this->assertFalse($method->invoke($adapter, $entry, ['primary_group_id' => 512]));
+    }
 }
 
 class FakeDirectoryGateway extends DirectoryGateway
 {
+    public bool $isEnabled = true;
+
+    public string $configurationRevision = 'synthetic-directory-configuration-v1';
+
+    public bool $changeRevisionOnAuth = false;
+
+    public bool $changeRevisionOnLookup = false;
+
     public bool $unavailable = false;
 
     public ?array $authIdentity = null;
@@ -341,7 +399,12 @@ class FakeDirectoryGateway extends DirectoryGateway
 
     public function enabled(): bool
     {
-        return true;
+        return $this->isEnabled;
+    }
+
+    public function revision(): string
+    {
+        return $this->configurationRevision;
     }
 
     public function authenticate(string $identifier, #[\SensitiveParameter] string $password): ?array
@@ -350,6 +413,9 @@ class FakeDirectoryGateway extends DirectoryGateway
         $this->lastIdentifier = $identifier;
         if ($this->unavailable) {
             throw new DirectoryUnavailable('Synthetic directory outage.');
+        }
+        if ($this->changeRevisionOnAuth) {
+            $this->configurationRevision = 'synthetic-directory-configuration-v2';
         }
 
         return $this->authIdentity;
@@ -361,6 +427,9 @@ class FakeDirectoryGateway extends DirectoryGateway
         $this->lastGuid = $guid;
         if ($this->unavailable) {
             throw new DirectoryUnavailable('Synthetic directory outage.');
+        }
+        if ($this->changeRevisionOnLookup) {
+            $this->configurationRevision = 'synthetic-directory-configuration-v2';
         }
 
         return $this->lookupIdentity;

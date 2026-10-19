@@ -16,6 +16,8 @@ class User extends Authenticatable
 
     protected $fillable = ['name', 'email', 'username', 'password', 'role', 'is_active'];
 
+    protected $attributes = ['auth_provider' => 'local'];
+
     protected $hidden = ['password', 'remember_token', 'directory_guid'];
 
     /**

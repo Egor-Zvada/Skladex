@@ -18,14 +18,14 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
-        $middleware->trimStrings(except: ['alias']);
+        $middleware->trimStrings(except: ['alias', 'bind_password']);
         $middleware->alias(['permission' => Permission::class, 'idempotent' => Idempotent::class]);
         $middleware->trustHosts(at: fn () => array_map(fn ($host) => '^'.preg_quote($host, '/').'$', config('skladex.allowed_hosts', [])), subdomains: false);
         $middleware->redirectGuestsTo('/login');
         $middleware->redirectUsersTo('/app');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->dontFlash(['current_password', 'password', 'password_confirmation', 'setup_token', 'license_key', 'token']);
+        $exceptions->dontFlash(['current_password', 'password', 'password_confirmation', 'bind_password', 'ca_pem', 'setup_token', 'license_key', 'token']);
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );

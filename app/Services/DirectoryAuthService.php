@@ -16,13 +16,17 @@ class DirectoryAuthService
         if (! $this->gateway->enabled()) {
             return null;
         }
+        $revision = $this->gateway->revision();
         $identity = $this->gateway->authenticate($identifier, $password);
         if (! $identity) {
             return null;
         }
 
-        return DB::transaction(function () use ($identity): ?User {
+        return DB::transaction(function () use ($identity, $revision): ?User {
             $this->mutex();
+            if (! $this->gateway->enabled() || ! hash_equals($revision, $this->gateway->revision())) {
+                throw new DirectoryUnavailable('Настройки доменного входа изменились. Повторите вход.');
+            }
             $user = User::where('directory_guid', $identity['guid'])->lockForUpdate()->first();
             if ($user && (! $user->is_active || $user->auth_provider !== 'ldap')) {
                 return null; // An administrator's local block is never auto-reversed.
@@ -58,19 +62,21 @@ class DirectoryAuthService
             return;
         }
         abort_unless($user->is_active, 403, 'Доступ отключён.');
-        if ($user->directory_checked_at && $user->directory_checked_at->greaterThan(now()->subSeconds(60))) {
-            return;
-        }
         if (! $this->gateway->enabled()) {
             abort(503, 'Доменный вход временно отключён.');
         }
+        if ($user->directory_checked_at && $user->directory_checked_at->greaterThan(now()->subSeconds(60))) {
+            return;
+        }
         try {
+            $revision = $this->gateway->revision();
             $identity = $this->gateway->lookup((string) $user->directory_guid);
         } catch (DirectoryUnavailable $e) {
             abort(503, 'Не удалось подтвердить доменный доступ. Попробуйте позже.');
         }
-        DB::transaction(function () use ($user, $identity): void {
+        DB::transaction(function () use ($user, $identity, $revision): void {
             $this->mutex();
+            abort_unless($this->gateway->enabled() && hash_equals($revision, $this->gateway->revision()), 503, 'Настройки доменного входа изменились. Повторите запрос.');
             $current = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
             abort_unless($current->is_active && $current->auth_provider === 'ldap', 403, 'Доступ отключён.');
             if (! $identity || $identity['guid'] !== $current->directory_guid) {

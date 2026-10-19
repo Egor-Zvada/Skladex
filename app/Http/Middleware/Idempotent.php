@@ -13,6 +13,11 @@ class Idempotent
 {
     public function handle(Request $request, Closure $next)
     {
+        if ($request->routeIs('settings.directory.*')) {
+            Access::check($request->user(), 'configure');
+
+            return $next($request);
+        }
         if ($request->routeIs('writeoffs.purge', 'api.writeoffs.purge')) {
             Access::check($request->user(), 'purge-assets');
         }

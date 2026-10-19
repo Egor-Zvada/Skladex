@@ -7,11 +7,14 @@ use App\Services\DirectoryUnavailable;
 use App\Services\MaintenancePresetService;
 use App\Services\OperationsService;
 use App\Support\LicenseKeyCipher;
+use Dotenv\Dotenv;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Schema;
 
 Artisan::command('skladex:directory-check', function () {
     try {
@@ -74,7 +77,7 @@ Artisan::command('skladex:check', function () {
     $this->info('Database, Redis and license cipher: OK');
 })->purpose('Check application dependencies without printing secrets');
 
-Artisan::command('skladex:verify-restored-keys {keyfile}', function () {
+Artisan::command('skladex:verify-restored-keys {keyfile} {--app-env=}', function () {
     if (! function_exists('posix_geteuid') || posix_geteuid() !== 0) {
         throw new RuntimeException('Restore verification requires root.');
     }
@@ -95,6 +98,32 @@ Artisan::command('skladex:verify-restored-keys {keyfile}', function () {
         $count++;
     }
     $this->info('Restored license secrets verified: '.$count);
+    if (Schema::connection('restore_verify')->hasTable('directory_configurations')
+        && DB::connection('restore_verify')->table('directory_configurations')->exists()) {
+        $path = $this->option('app-env');
+        if (! is_string($path) || ! is_readable($path)) {
+            throw new RuntimeException('Restored APP_KEY environment is required to verify directory settings.');
+        }
+        $environment = Dotenv::parse(file_get_contents($path));
+        $key = $environment['APP_KEY'] ?? '';
+        if (str_starts_with($key, 'base64:')) {
+            $key = base64_decode(substr($key, 7), true);
+        }
+        if (! is_string($key)) {
+            throw new RuntimeException('Invalid restored application key.');
+        }
+        $encrypter = new Encrypter($key, $environment['APP_CIPHER'] ?? config('app.cipher'));
+        $verified = 0;
+        foreach (DB::connection('restore_verify')->table('directory_configurations')->cursor() as $row) {
+            $payload = json_decode($encrypter->decryptString($row->payload), true, 64, JSON_THROW_ON_ERROR);
+            if (! is_array($payload) || ! is_bool($payload['enabled'] ?? null)
+                || (($payload['enabled'] ?? false) && ! is_string($payload['bind_password'] ?? null))) {
+                throw new RuntimeException('Invalid restored directory configuration.');
+            }
+            $verified++;
+        }
+        $this->info('Restored directory configurations verified: '.$verified);
+    }
 })->purpose('Verify license decryption in the isolated restore database');
 
 Schedule::command('skladex:maintenance')->everyFiveMinutes()->withoutOverlapping(10)

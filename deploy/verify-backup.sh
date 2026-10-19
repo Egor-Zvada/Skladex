@@ -17,6 +17,7 @@ cleanup() {
     if [[ $created == 1 ]]; then mariadb -e 'DROP DATABASE IF EXISTS skladex_restore_test'; fi
     rm -f "$temp/database.sql"
     rm -f "$temp/license-master.key"
+    rm -f "$temp/app.env"
     rmdir "$temp"
 }
 trap cleanup EXIT
@@ -32,7 +33,8 @@ while IFS=$'\t' read -r path expected; do
     [[ $actual == "$expected" ]] || { echo 'Document checksum mismatch'; exit 1; }
 done < <(mariadb -N skladex_restore_test -e 'SELECT path,sha256 FROM documents')
 tar -xOzf "$keys" etc/skladex/license-master.key > "$temp/license-master.key"
+tar -xOzf "$keys" etc/skladex/app.env > "$temp/app.env"
 cd /srv/skladex/app
-php artisan skladex:verify-restored-keys "$temp/license-master.key"
+php artisan skladex:verify-restored-keys "$temp/license-master.key" --app-env="$temp/app.env"
 mariadb -N skladex_restore_test -e 'SELECT "assets",COUNT(*) FROM assets UNION ALL SELECT "categories",COUNT(*) FROM categories UNION ALL SELECT "users",COUNT(*) FROM users'
 echo 'Restore check passed; temporary database will be removed.'
